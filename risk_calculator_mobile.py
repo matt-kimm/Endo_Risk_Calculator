@@ -27,7 +27,7 @@ st.markdown("""
         padding: 0.6rem !important;
         border-radius: 8px !important;
     }
-    /* Уменьшаем отступы у контейнера */
+    /* Уменьшаем отступы у контейнера, но оставляем достаточно сверху */
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
@@ -44,18 +44,28 @@ st.markdown("""
     .streamlit-expanderHeader {
         font-size: 1rem;
     }
+    /* Заголовок: увеличиваем line-height и верхний отступ, чтобы эмодзи не обрезался */
+    h1 {
+        line-height: 1.3 !important;
+        padding-top: 0.5rem;
+    }
     
     /* ========== АДАПТИВНЫЕ ЗАГОЛОВКИ ДЛЯ ТЕЛЕФОНОВ ========== */
     @media (max-width: 768px) {
         h1 {
             font-size: 1.8rem !important;
             word-break: break-word;
+            padding-top: 0.75rem; /* дополнительный отступ на мобильных */
         }
         h2, .stMarkdown h2 {
             font-size: 1.5rem !important;
         }
         h3, .stMarkdown h3 {
             font-size: 1.3rem !important;
+        }
+        /* Увеличим общий верхний отступ контейнера на телефонах */
+        .block-container {
+            padding-top: 1.5rem !important;
         }
         /* На очень маленьких экранах колонки с метриками можно дополнительно уплотнить */
         .stColumn {

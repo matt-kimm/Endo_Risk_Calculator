@@ -32,9 +32,9 @@ st.markdown("""
         padding-top: 1rem;
         padding-bottom: 1rem;
     }
-    /* Для метрик на мобильных – чтобы они не были слишком узкими */
+    /* Метрики: выравнивание по левому краю (вместо центра) */
     .stMetric {
-        text-align: center;
+        text-align: left !important;
     }
     /* Прогресс-бар – полная ширина */
     .stProgress > div {
@@ -44,6 +44,25 @@ st.markdown("""
     .streamlit-expanderHeader {
         font-size: 1rem;
     }
+    
+    /* ========== АДАПТИВНЫЕ ЗАГОЛОВКИ ДЛЯ ТЕЛЕФОНОВ ========== */
+    @media (max-width: 768px) {
+        h1 {
+            font-size: 1.8rem !important;
+            word-break: break-word;
+        }
+        h2, .stMarkdown h2 {
+            font-size: 1.5rem !important;
+        }
+        h3, .stMarkdown h3 {
+            font-size: 1.3rem !important;
+        }
+        /* На очень маленьких экранах колонки с метриками можно дополнительно уплотнить */
+        .stColumn {
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,7 +70,7 @@ st.markdown("""
 st.set_page_config(
     page_title="Оценка риска диабета",
     page_icon="🩺",
-    layout="centered"          # центрированный контент хорошо подходит для мобильных
+    layout="centered"
 )
 
 # ======================== ЗАГОЛОВОК ========================

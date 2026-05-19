@@ -1,4 +1,3 @@
-
 import math
 import io
 import re
@@ -371,7 +370,7 @@ bone_risk_features = [
 ]
 
 # ======================== ФУНКЦИИ РИСКА ========================
-def diabetes_probability_from_model(age, gender, symptom_values):
+def diabetes_probability_from_model(age, gender, symptom_values, family_history_diabetes):
     input_data = [age, gender]
     for feature in expected_features[2:]:
         input_data.append(1 if symptom_values.get(feature, False) else 0)
@@ -383,11 +382,14 @@ def diabetes_probability_from_model(age, gender, symptom_values):
             probability = safe_positive_probability(model, input_df)
             prediction = int(model.predict(input_df)[0])
             if probability is not None:
+                # добавляем наследственность
+                if family_history_diabetes:
+                    probability = clamp(probability + 10.0)
                 return probability, prediction, None
         except Exception as e:
             return None, None, f"Не удалось использовать модель: {e}"
 
-    # Безопасный эвристический fallback, чтобы приложение не ломалось без pkl.
+    # Безопасный эвристический fallback
     score = 0.0
     score += 0.8 * (age - 30) if age >= 30 else 0.0
     score += 12 * yes(symptom_values.get("Polyuria"))
@@ -402,6 +404,8 @@ def diabetes_probability_from_model(age, gender, symptom_values):
     score += 4 * yes(symptom_values.get("Irritability"))
     score += 4 * yes(symptom_values.get("Itching"))
     score += 5 * yes(symptom_values.get("Alopecia"))
+    if family_history_diabetes:
+        score += 10
     score = clamp(score, 0, 99)
     prediction = 1 if score >= 50 else 0
     return score, prediction, None
@@ -435,7 +439,7 @@ def obesity_proxy(bmi, waist_cm, activity_level, sleep_hours):
 
     return clamp(score)
 
-def insulin_resistance_proxy(age, bmi, waist_cm, activity_level, sleep_hours, diabetes_symptom_values):
+def insulin_resistance_proxy(age, bmi, waist_cm, activity_level, sleep_hours, diabetes_symptom_values, family_history_diabetes):
     score = obesity_proxy(bmi, waist_cm, activity_level, sleep_hours)
 
     if age >= 45:
@@ -450,9 +454,12 @@ def insulin_resistance_proxy(age, bmi, waist_cm, activity_level, sleep_hours, di
     score += 6 * yes(diabetes_symptom_values.get("sudden weight loss"))
     score += 6 * yes(diabetes_symptom_values.get("weakness"))
 
+    if family_history_diabetes:
+        score += 8
+
     return clamp(score)
 
-def hypothyroid_proxy(age, thyroid_values, tsh_value, ft4_value):
+def hypothyroid_proxy(age, thyroid_values, tsh_value, ft4_value, family_history_thyroid):
     score = 0.0
     score += 12 * yes(thyroid_values.get("cold intolerance"))
     score += 10 * yes(thyroid_values.get("constipation"))
@@ -475,9 +482,12 @@ def hypothyroid_proxy(age, thyroid_values, tsh_value, ft4_value):
         if ft4_value < 0.8:
             score += 10
 
+    if family_history_thyroid:
+        score += 8
+
     return clamp(score)
 
-def hyperthyroid_proxy(age, thyroid_values, tsh_value, ft4_value):
+def hyperthyroid_proxy(age, thyroid_values, tsh_value, ft4_value, family_history_thyroid):
     score = 0.0
     score += 12 * yes(thyroid_values.get("heat intolerance"))
     score += 10 * yes(thyroid_values.get("palpitations"))
@@ -500,6 +510,9 @@ def hyperthyroid_proxy(age, thyroid_values, tsh_value, ft4_value):
     if ft4_value and ft4_value > 0:
         if ft4_value > 1.8:
             score += 10
+
+    if family_history_thyroid:
+        score += 8
 
     return clamp(score)
 
@@ -528,7 +541,7 @@ def pcos_proxy(age, sex, pcos_values, bmi, insulin_resistance_score, fasting_glu
 
     return clamp(score)
 
-def osteoporosis_proxy(age, sex, bone_values, bmi):
+def osteoporosis_proxy(age, sex, bone_values, bmi, family_history_osteoporosis):
     score = 0.0
     score += 15 * yes(bone_values.get("postmenopausal"))
     score += 14 * yes(bone_values.get("prior fracture"))
@@ -550,9 +563,12 @@ def osteoporosis_proxy(age, sex, bone_values, bmi):
     elif age >= 50:
         score += 6
 
+    if family_history_osteoporosis:
+        score += 10
+
     return clamp(score)
 
-def metabolic_syndrome_proxy(age, sex, bmi, waist_cm, activity_level, fasting_glucose, hba1c, insulin_resistance_score):
+def metabolic_syndrome_proxy(age, sex, bmi, waist_cm, activity_level, fasting_glucose, hba1c, insulin_resistance_score, family_history_diabetes):
     score = 0.0
     score += obesity_proxy(bmi, waist_cm, activity_level, sleep_hours=7)
     score += min(20, insulin_resistance_score * 0.18)
@@ -576,6 +592,10 @@ def metabolic_syndrome_proxy(age, sex, bmi, waist_cm, activity_level, fasting_gl
 
     if bmi >= 30:
         score += 6
+
+    if family_history_diabetes:
+        score += 8
+
     return clamp(score)
 
 def generate_connections(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, sex):
@@ -640,106 +660,109 @@ if network_model is not None:
     ml_ready_note.append("эндокринная сеть")
 
 if ml_ready_note:
-    st.success("ML-модели подхвачены для: " + ", ".join(ml_ready_note) + ".")
+    st.success("ML-модели загружены для: " + ", ".join(ml_ready_note) + ".")
 else:
     st.info("Для новых блоков используется безопасная клиническая логика; ML-модели можно подключить файлами .pkl без изменения интерфейса.")
 
-# ======================== ФОРМА ВВОДА ========================
-with st.form("risk_factors_form"):
-    st.header("📋 Введите данные")
+# ======================== ФОРМА ВВОДА (БЕЗ st.form) ========================
+st.header("📋 Введите данные")
 
-    col_age, col_gender = st.columns(2)
-    with col_age:
-        age = st.slider("Возраст (полных лет)", min_value=18, max_value=90, value=40, help="Укажите ваш возраст")
-    with col_gender:
-        gender_input = st.radio("Пол", options=["Мужской", "Женский"], help="Выберите пол")
-    gender = 0 if gender_input == "Мужской" else 1
+col_age, col_gender = st.columns(2)
+with col_age:
+    age = st.slider("Возраст (полных лет)", min_value=18, max_value=90, value=40, help="Укажите ваш возраст")
+with col_gender:
+    gender_input = st.radio("Пол", options=["Мужской", "Женский"], help="Выберите пол")
+gender = 0 if gender_input == "Мужской" else 1
 
-    st.subheader("🧩 Базовые данные")
-    col_h, col_w, col_waist = st.columns(3)
-    with col_h:
-        height_cm = st.number_input("Рост, см", min_value=100.0, max_value=230.0, value=170.0, step=1.0)
-    with col_w:
-        weight_kg = st.number_input("Вес, кг", min_value=30.0, max_value=250.0, value=75.0, step=0.5)
-    with col_waist:
-        waist_cm = st.number_input("Талия, см", min_value=40.0, max_value=200.0, value=85.0, step=1.0)
+st.subheader("🧬 Наследственность")
+family_history_diabetes = st.checkbox("Наследственность по диабету 2 типа (родители, сиблинги)")
+family_history_thyroid = st.checkbox("Наследственность по заболеваниям щитовидной железы")
+family_history_osteoporosis = st.checkbox("Наследственность по остеопорозу")
 
-    col_sleep, col_activity = st.columns(2)
-    with col_sleep:
-        sleep_hours = st.slider("Сон, часов/сутки", min_value=3.0, max_value=12.0, value=7.0, step=0.5)
-    with col_activity:
-        activity_level = st.selectbox("Физическая активность", ["Низкая", "Средняя", "Высокая"], index=1)
+st.subheader("🧩 Базовые данные")
+col_h, col_w, col_waist = st.columns(3)
+with col_h:
+    height_cm = st.number_input("Рост, см", min_value=100.0, max_value=230.0, value=170.0, step=1.0)
+with col_w:
+    weight_kg = st.number_input("Вес, кг", min_value=30.0, max_value=250.0, value=75.0, step=0.5)
+with col_waist:
+    waist_cm = st.number_input("Талия, см", min_value=40.0, max_value=200.0, value=85.0, step=1.0)
 
-    bmi = weight_kg / ((height_cm / 100.0) ** 2) if height_cm > 0 else 0.0
+col_sleep, col_activity = st.columns(2)
+with col_sleep:
+    sleep_hours = st.slider("Сон, часов/сутки", min_value=3.0, max_value=12.0, value=7.0, step=0.5)
+with col_activity:
+    activity_level = st.selectbox("Физическая активность", ["Низкая", "Средняя", "Высокая"], index=1)
 
-    st.caption(f"Расчетный ИМТ: {bmi:.1f}")
+bmi = weight_kg / ((height_cm / 100.0) ** 2) if height_cm > 0 else 0.0
+st.caption(f"Расчетный ИМТ: {bmi:.1f}")
 
-    st.subheader("🍬 Симптомы, связанные с диабетом")
-    st.caption("Отметьте признаки, которые у вас наблюдаются.")
-    diabetes_symptom_values = {}
-    diabetes_features = expected_features[2:]
-    col1, col2 = st.columns(2)
-    for idx, feature in enumerate(diabetes_features):
+st.subheader("🍬 Симптомы, связанные с диабетом")
+st.caption("Отметьте признаки, которые у вас наблюдаются.")
+diabetes_symptom_values = {}
+diabetes_features = expected_features[2:]
+col1, col2 = st.columns(2)
+for idx, feature in enumerate(diabetes_features):
+    ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
+    with (col1 if idx % 2 == 0 else col2):
+        diabetes_symptom_values[feature] = st.checkbox(ru_name, key=f"dm_{feature}")
+
+st.subheader("🦋 Щитовидная железа")
+thyroid_values = {}
+th_col1, th_col2 = st.columns(2)
+for idx, feature in enumerate(thyroid_symptoms):
+    ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
+    with (th_col1 if idx % 2 == 0 else th_col2):
+        thyroid_values[feature] = st.checkbox(ru_name, key=f"th_{feature}")
+
+st.subheader("♀️ Женский гормональный блок (PCOS)")
+pcos_values = {}
+if gender == 1:
+    st.caption("Этот блок активен только для женщин.")
+    pcos_col1, pcos_col2 = st.columns(2)
+    for idx, feature in enumerate(pcos_symptoms):
         ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-        with (col1 if idx % 2 == 0 else col2):
-            diabetes_symptom_values[feature] = st.checkbox(ru_name, key=f"dm_{feature}")
+        with (pcos_col1 if idx % 2 == 0 else pcos_col2):
+            pcos_values[feature] = st.checkbox(ru_name, key=f"pcos_{feature}")
+else:
+    st.caption("PCOS-блок для мужчин не оценивается.")
+    for feature in pcos_symptoms:
+        pcos_values[feature] = False
 
-    st.subheader("🦋 Щитовидная железа")
-    thyroid_values = {}
-    th_col1, th_col2 = st.columns(2)
-    for idx, feature in enumerate(thyroid_symptoms):
-        ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-        with (th_col1 if idx % 2 == 0 else th_col2):
-            thyroid_values[feature] = st.checkbox(ru_name, key=f"th_{feature}")
+st.subheader("🦴 Костный риск / остеопения")
+bone_values = {}
+bone_col1, bone_col2 = st.columns(2)
+for idx, feature in enumerate(bone_risk_features):
+    ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
+    with (bone_col1 if idx % 2 == 0 else bone_col2):
+        bone_values[feature] = st.checkbox(ru_name, key=f"bone_{feature}")
 
-    st.subheader("♀️ Женский гормональный блок (PCOS)")
-    pcos_values = {}
-    if gender == 1:
-        st.caption("Этот блок активен только для женщин.")
-        pcos_col1, pcos_col2 = st.columns(2)
-        for idx, feature in enumerate(pcos_symptoms):
-            ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-            with (pcos_col1 if idx % 2 == 0 else pcos_col2):
-                pcos_values[feature] = st.checkbox(ru_name, key=f"pcos_{feature}")
-    else:
-        st.caption("PCOS-блок для мужчин не оценивается.")
-        for feature in pcos_symptoms:
-            pcos_values[feature] = False
+st.subheader("🧪 Анализы (если уже есть)")
+col_fg, col_hba1c, col_tsh, col_ft4 = st.columns(4)
+with col_fg:
+    fasting_glucose = st.number_input("Глюкоза натощак, мг/дл", min_value=0.0, max_value=1000.0, value=0.0, step=1.0, help="0 = не указывать")
+with col_hba1c:
+    hba1c = st.number_input("HbA1c, %", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
+with col_tsh:
+    tsh_value = st.number_input("ТТГ, мМЕ/л", min_value=0.0, max_value=100.0, value=0.0, step=0.1, help="0 = не указывать")
+with col_ft4:
+    ft4_value = st.number_input("Св. T4, нг/дл", min_value=0.0, max_value=10.0, value=0.0, step=0.1, help="0 = не указывать")
 
-    st.subheader("🦴 Костный риск / остеопения")
-    bone_values = {}
-    bone_col1, bone_col2 = st.columns(2)
-    for idx, feature in enumerate(bone_risk_features):
-        ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-        with (bone_col1 if idx % 2 == 0 else bone_col2):
-            bone_values[feature] = st.checkbox(ru_name, key=f"bone_{feature}")
+st.subheader("📈 Мультифрактальный анализ гликемии (экспериментально)")
+st.caption("Если есть ряд глюкозы по времени, можно вставить его сюда. Это исследовательский блок, а не стандартная клиническая методика.")
+glucose_series_text = st.text_area(
+    "Глюкозный ряд (числа через запятую, пробел или перенос строки)",
+    height=110,
+    placeholder="Например: 92, 95, 90, 101, 115, 108, 98, 94 ..."
+)
+glucose_file = st.file_uploader(
+    "Или загрузите файл с рядом глюкозы (.txt, .csv)",
+    type=["txt", "csv"],
+    help="Подходит файл с одним числом в строке или с числами, разделёнными запятыми / пробелами / точками с запятой.",
+)
+enable_mfdfa = st.checkbox("Выполнить MF-DFA-анализ, если данных достаточно", value=False)
 
-    st.subheader("🧪 Анализы (если уже есть)")
-    col_fg, col_hba1c, col_tsh, col_ft4 = st.columns(4)
-    with col_fg:
-        fasting_glucose = st.number_input("Глюкоза натощак, мг/дл", min_value=0.0, max_value=1000.0, value=0.0, step=1.0, help="0 = не указывать")
-    with col_hba1c:
-        hba1c = st.number_input("HbA1c, %", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
-    with col_tsh:
-        tsh_value = st.number_input("ТТГ, мМЕ/л", min_value=0.0, max_value=100.0, value=0.0, step=0.1, help="0 = не указывать")
-    with col_ft4:
-        ft4_value = st.number_input("Св. T4, нг/дл", min_value=0.0, max_value=10.0, value=0.0, step=0.1, help="0 = не указывать")
-
-    st.subheader("📈 Мультифрактальный анализ гликемии (экспериментально)")
-    st.caption("Если есть ряд глюкозы по времени, можно вставить его сюда. Это исследовательский блок, а не стандартная клиническая методика.")
-    glucose_series_text = st.text_area(
-        "Глюкозный ряд (числа через запятую, пробел или перенос строки)",
-        height=110,
-        placeholder="Например: 92, 95, 90, 101, 115, 108, 98, 94 ..."
-    )
-    glucose_file = st.file_uploader(
-        "Или загрузите файл с рядом глюкозы (.txt, .csv)",
-        type=["txt", "csv"],
-        help="Подходит файл с одним числом в строке или с числами, разделёнными запятыми / пробелами / точками с запятой.",
-    )
-    enable_mfdfa = st.checkbox("Выполнить MF-DFA-анализ, если данных достаточно", value=False)
-
-    submitted = st.form_submit_button("Собрать медицинскую карту", type="primary", use_container_width=True)
+submitted = st.button("Собрать медицинскую карту", type="primary", use_container_width=True)
 
 # ======================== MF-DFA ========================
 
@@ -804,7 +827,6 @@ def mfdfa(series, q_vals=None, min_scale=4, max_scale=None, scale_count=8):
     if max_scale <= min_scale:
         return None
 
-    # Для коротких рядов делаем линейную сетку, чтобы графики вообще строились.
     if max_scale - min_scale <= 10:
         scales = np.arange(min_scale, max_scale + 1, dtype=int)
     else:
@@ -888,7 +910,6 @@ def mfdfa(series, q_vals=None, min_scale=4, max_scale=None, scale_count=8):
     }
 
 def mfdfa_interpretation(result):
-
     if result is None:
         return "Недостаточно данных для MF-DFA."
     width = result["width"]
@@ -960,10 +981,6 @@ def plot_mfdfa_spectrum(result):
     fig.tight_layout()
     return fig
 
-
-
-# ========================= REFERENCE COMPARISON =========================
-
 def interpret_complexity(width):
     if width >= 0.8:
         return "Высокая метаболическая сложность / адаптивность"
@@ -975,14 +992,12 @@ def interpret_complexity(width):
 def compare_to_reference(current_width):
     reference_width = 0.75
     delta = current_width - reference_width
-
     if delta > 0.15:
         status = "Сложность выше условной нормы"
     elif delta < -0.15:
         status = "Сложность ниже условной нормы"
     else:
         status = "Близко к условной норме"
-
     return {
         "reference": reference_width,
         "delta": delta,
@@ -992,19 +1007,19 @@ def compare_to_reference(current_width):
 # ======================== РЕЗУЛЬТАТЫ ========================
 if submitted:
     diabetes_score, diabetes_prediction, diabetes_fallback_error = diabetes_probability_from_model(
-        age, gender, diabetes_symptom_values
+        age, gender, diabetes_symptom_values, family_history_diabetes
     )
     if diabetes_score is None:
         diabetes_score = 0.0
         diabetes_prediction = 0
 
-    ir_score = insulin_resistance_proxy(age, bmi, waist_cm, activity_level, sleep_hours, diabetes_symptom_values)
+    ir_score = insulin_resistance_proxy(age, bmi, waist_cm, activity_level, sleep_hours, diabetes_symptom_values, family_history_diabetes)
     obesity_score = obesity_proxy(bmi, waist_cm, activity_level, sleep_hours)
-    hypothyroid_rule_score = hypothyroid_proxy(age, thyroid_values, tsh_value, ft4_value)
-    hyperthyroid_rule_score = hyperthyroid_proxy(age, thyroid_values, tsh_value, ft4_value)
+    hypothyroid_rule_score = hypothyroid_proxy(age, thyroid_values, tsh_value, ft4_value, family_history_thyroid)
+    hyperthyroid_rule_score = hyperthyroid_proxy(age, thyroid_values, tsh_value, ft4_value, family_history_thyroid)
     pcos_rule_score = pcos_proxy(age, gender, pcos_values, bmi, ir_score, fasting_glucose, hba1c)
-    bone_score = osteoporosis_proxy(age, gender, bone_values, bmi)
-    metabolic_rule_score = metabolic_syndrome_proxy(age, gender, bmi, waist_cm, activity_level, fasting_glucose, hba1c, ir_score)
+    bone_score = osteoporosis_proxy(age, gender, bone_values, bmi, family_history_osteoporosis)
+    metabolic_rule_score = metabolic_syndrome_proxy(age, gender, bmi, waist_cm, activity_level, fasting_glucose, hba1c, ir_score, family_history_diabetes)
 
     metabolic_ml_df = make_metabolic_features(age, gender, bmi, waist_cm, activity_level, sleep_hours, fasting_glucose, hba1c, diabetes_symptom_values)
     thyroid_ml_df = make_thyroid_features(age, gender, thyroid_values, tsh_value, ft4_value)
@@ -1167,6 +1182,7 @@ if submitted:
                 "Симптомы диабета",
                 "Возраст",
                 "Вес / метаболическая нагрузка",
+                "Наследственность" if family_history_diabetes else None,
             ],
         },
         {
@@ -1179,6 +1195,7 @@ if submitted:
                 "Талия",
                 "Сон и активность",
                 "Симптомы углеводного обмена",
+                "Наследственность" if family_history_diabetes else None,
             ],
         },
         {
@@ -1190,6 +1207,7 @@ if submitted:
                 "Холод / запоры / сухость кожи",
                 "Утомляемость",
                 "ТТГ / свободный T4",
+                "Наследственность" if family_history_thyroid else None,
             ],
         },
         {
@@ -1201,6 +1219,7 @@ if submitted:
                 "Жара / сердцебиение / тремор",
                 "Потеря веса",
                 "ТТГ / свободный T4",
+                "Наследственность" if family_history_thyroid else None,
             ],
         },
         {
@@ -1234,6 +1253,7 @@ if submitted:
                 "Возраст",
                 "Переломы / стероиды",
                 "Низкая активность / низкий ИМТ",
+                "Наследственность" if family_history_osteoporosis else None,
             ],
         },
     ]
@@ -1241,12 +1261,14 @@ if submitted:
     for card in disease_cards:
         if card["score"] is None:
             continue
+        # убираем None из drivers
+        drivers = [d for d in card["drivers"] if d is not None]
         st.markdown(
             f"""
 <div class="card">
   <div><strong>{card['name']}</strong> {badge(card['level'])}</div>
   <div style="margin-top:0.35rem;"><strong>Риск:</strong> {score_to_text(card['score'])}</div>
-  <div class="muted" style="margin-top:0.35rem;"><strong>Основные драйверы:</strong> {", ".join(card["drivers"])}</div>
+  <div class="muted" style="margin-top:0.35rem;"><strong>Основные драйверы:</strong> {", ".join(drivers)}</div>
   <div style="margin-top:0.5rem;">{card["advice"]}</div>
 </div>
 """,
@@ -1287,6 +1309,9 @@ if submitted:
         st.write(f"**Талия:** {waist_cm:.0f} см")
         st.write(f"**Сон:** {sleep_hours:.1f} ч/сутки")
         st.write(f"**Активность:** {activity_level}")
+        st.write(f"**Наследственность по диабету:** {'Да' if family_history_diabetes else 'Нет'}")
+        st.write(f"**Наследственность по щитовидной железе:** {'Да' if family_history_thyroid else 'Нет'}")
+        st.write(f"**Наследственность по остеопорозу:** {'Да' if family_history_osteoporosis else 'Нет'}")
 
         st.write("**Симптомы диабета:**")
         active_diab = [feature_names_ru.get(k, k) for k, v in diabetes_symptom_values.items() if v]
@@ -1385,31 +1410,3 @@ st.caption(
     "Прототип создан в образовательных целях. Диагностические решения и назначения должен подтверждать врач. "
     "MF-DFA блок является экспериментальным исследовательским модулем; ряд можно вводить вручную или загружать файлом."
 )
-
-# ========================= REFERENCE COMPARISON =========================
-
-def interpret_complexity(width):
-    if width >= 0.8:
-        return "Высокая метаболическая сложность / адаптивность"
-    elif width >= 0.45:
-        return "Умеренная метаболическая сложность"
-    else:
-        return "Сниженная сложность, возможна потеря адаптивности"
-
-def compare_to_reference(current_width):
-    reference_width = 0.75
-
-    delta = current_width - reference_width
-
-    if delta > 0.15:
-        status = "Сложность выше условной нормы"
-    elif delta < -0.15:
-        status = "Сложность ниже условной нормы"
-    else:
-        status = "Близко к условной норме"
-
-    return {
-        "reference": reference_width,
-        "delta": delta,
-        "status": status
-    }

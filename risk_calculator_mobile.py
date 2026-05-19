@@ -1,9 +1,19 @@
 
 import math
+import io
+import re
 import numpy as np
 import pandas as pd
 import streamlit as st
 import joblib
+import matplotlib.pyplot as plt
+
+# ======================== НАСТРОЙКА СТРАНИЦЫ ========================
+st.set_page_config(
+    page_title="Эндокринная медицинская карта",
+    page_icon="🩺",
+    layout="centered",
+)
 
 # ======================== АДАПТИВНЫЙ CSS ДЛЯ МОБИЛЬНЫХ УСТРОЙСТВ ========================
 st.markdown(
@@ -83,13 +93,6 @@ st.markdown(
 </style>
 """,
     unsafe_allow_html=True,
-)
-
-# ======================== НАСТРОЙКА СТРАНИЦЫ ========================
-st.set_page_config(
-    page_title="Эндокринная медицинская карта",
-    page_icon="🩺",
-    layout="centered",
 )
 
 # ======================== ПЕРЕВОДЫ И СПРАВОЧНИКИ ========================
@@ -377,9 +380,10 @@ def diabetes_probability_from_model(age, gender, symptom_values):
 
     if model is not None and hasattr(model, "predict_proba"):
         try:
-            probability = model.predict_proba(input_df)[0]
+            probability = safe_positive_probability(model, input_df)
             prediction = int(model.predict(input_df)[0])
-            return float(probability[1] * 100), prediction, None
+            if probability is not None:
+                return probability, prediction, None
         except Exception as e:
             return None, None, f"Не удалось использовать модель: {e}"
 
@@ -728,51 +732,92 @@ with st.form("risk_factors_form"):
         height=110,
         placeholder="Например: 92, 95, 90, 101, 115, 108, 98, 94 ..."
     )
+    glucose_file = st.file_uploader(
+        "Или загрузите файл с рядом глюкозы (.txt, .csv)",
+        type=["txt", "csv"],
+        help="Подходит файл с одним числом в строке или с числами, разделёнными запятыми / пробелами / точками с запятой.",
+    )
     enable_mfdfa = st.checkbox("Выполнить MF-DFA-анализ, если данных достаточно", value=False)
 
     submitted = st.form_submit_button("Собрать медицинскую карту", type="primary", use_container_width=True)
 
 # ======================== MF-DFA ========================
-def parse_series(text: str):
+
+def extract_numeric_series(text: str):
     if not text or not text.strip():
         return None
-    cleaned = text.replace(";", ",").replace("\n", ",").replace("\t", ",")
-    parts = []
-    for token in cleaned.split(","):
-        token = token.strip().replace(" ", "")
-        if not token:
-            continue
-        try:
-            parts.append(float(token))
-        except Exception:
-            pass
-    arr = np.asarray(parts, dtype=float)
-    if arr.size < 16:
+    tokens = re.findall(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?", text.replace(",", " "))
+    if not tokens:
         return None
-    return arr
+    arr = np.asarray([float(tok) for tok in tokens], dtype=float)
+    arr = arr[np.isfinite(arr)]
+    return arr if arr.size else None
 
-def mfdfa(series, q_vals=None, min_scale=8, max_scale=None, scale_count=10):
+def parse_series(text: str):
+    arr = extract_numeric_series(text)
+    if arr is None:
+        return None
+    return arr if arr.size >= 12 else None
+
+def parse_uploaded_glucose_file(uploaded_file):
+    if uploaded_file is None:
+        return None
+    raw = uploaded_file.getvalue()
+    text = None
+    for encoding in ("utf-8", "utf-8-sig", "cp1251", "latin1"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except Exception:
+            continue
+    if text is None:
+        return None
+
+    arr = extract_numeric_series(text)
+    if arr is not None and arr.size >= 12:
+        return arr
+
+    try:
+        df = pd.read_csv(io.StringIO(text), header=None, engine="python")
+        numeric = pd.to_numeric(df.stack(), errors="coerce").dropna().to_numpy(dtype=float)
+        numeric = numeric[np.isfinite(numeric)]
+        if numeric.size >= 12:
+            return numeric
+    except Exception:
+        pass
+
+    return None
+
+def mfdfa(series, q_vals=None, min_scale=4, max_scale=None, scale_count=8):
     x = np.asarray(series, dtype=float)
     x = x[np.isfinite(x)]
-    if x.size < 32:
+    n = x.size
+    if n < 12:
         return None
 
     x = x - np.mean(x)
     y = np.cumsum(x)
-    n = y.size
 
     if max_scale is None:
-        max_scale = max(16, n // 4)
-    if max_scale <= min_scale + 2:
+        max_scale = max(min_scale + 2, n // 3)
+    max_scale = min(max_scale, max(min_scale + 2, n // 2))
+    if max_scale <= min_scale:
         return None
 
-    scales = np.unique(np.floor(np.logspace(np.log10(min_scale), np.log10(max_scale), scale_count)).astype(int))
+    # Для коротких рядов делаем линейную сетку, чтобы графики вообще строились.
+    if max_scale - min_scale <= 10:
+        scales = np.arange(min_scale, max_scale + 1, dtype=int)
+    else:
+        scales = np.unique(
+            np.floor(np.logspace(np.log10(min_scale), np.log10(max_scale), scale_count)).astype(int)
+        )
     scales = scales[scales >= 4]
-    if scales.size < 4:
+    scales = np.unique(scales)
+    if scales.size < 3:
         return None
 
     if q_vals is None:
-        q_vals = np.array([-4, -2, -1, 0, 1, 2, 4], dtype=float)
+        q_vals = np.array([-2, -1, 0, 1, 2], dtype=float) if n < 24 else np.array([-4, -2, -1, 0, 1, 2, 4], dtype=float)
 
     Fq = np.full((len(q_vals), len(scales)), np.nan, dtype=float)
 
@@ -820,15 +865,30 @@ def mfdfa(series, q_vals=None, min_scale=8, max_scale=None, scale_count=10):
         return None
 
     width = float(np.nanmax(Hq) - np.nanmin(Hq))
+
+    tau = q_vals * Hq - 1.0
+    alpha = np.full_like(tau, np.nan, dtype=float)
+    f_alpha = np.full_like(tau, np.nan, dtype=float)
+    valid_tau = np.isfinite(tau) & np.isfinite(q_vals)
+    if np.sum(valid_tau) >= 2:
+        alpha_valid = np.gradient(tau[valid_tau], q_vals[valid_tau])
+        alpha[valid_tau] = alpha_valid
+        f_alpha[valid_tau] = q_vals[valid_tau] * alpha_valid - tau[valid_tau]
+
     return {
         "scales": scales,
         "q_vals": q_vals,
         "Hq": Hq,
+        "Fq": Fq,
+        "tau": tau,
+        "alpha": alpha,
+        "f_alpha": f_alpha,
         "width": width,
         "mean_h": float(np.nanmean(Hq)),
     }
 
 def mfdfa_interpretation(result):
+
     if result is None:
         return "Недостаточно данных для MF-DFA."
     width = result["width"]
@@ -843,6 +903,91 @@ def mfdfa_interpretation(result):
         level = "Высокая мультифрактальность"
         note = "Колебания выраженно неоднородны; это может отражать нестабильную гликемическую динамику."
     return f"{level}. Ширина спектра: {width:.3f}. Средний H(q): {mean_h:.3f}. {note}"
+
+def plot_mfdfa_scaling(result):
+    if result is None:
+        return None
+    scales = np.asarray(result.get("scales", []), dtype=float)
+    q_vals = np.asarray(result.get("q_vals", []), dtype=float)
+    Fq = np.asarray(result.get("Fq", []), dtype=float)
+    if scales.size == 0 or q_vals.size == 0 or Fq.size == 0:
+        return None
+
+    fig, ax = plt.subplots(figsize=(6.2, 4.2))
+    for qi, q in enumerate(q_vals):
+        y = Fq[qi] if Fq.ndim == 2 and qi < Fq.shape[0] else None
+        if y is None:
+            continue
+        valid = np.isfinite(y) & (y > 0)
+        if valid.sum() < 3:
+            continue
+        x = np.log10(scales[valid])
+        yy = np.log10(y[valid])
+        ax.plot(x, yy, marker='o', linewidth=1.3, markersize=3.5, label=f"q={q:g}")
+        if valid.sum() >= 2:
+            coef = np.polyfit(x, yy, 1)
+            xfit = np.linspace(x.min(), x.max(), 50)
+            ax.plot(xfit, np.polyval(coef, xfit), linestyle='--', linewidth=1, alpha=0.6)
+
+    ax.set_xlabel("log10(scale)")
+    ax.set_ylabel("log10(Fq)")
+    ax.set_title("MF-DFA scaling plot")
+    ax.grid(True, alpha=0.25)
+    if len(q_vals) <= 7:
+        ax.legend(fontsize=8, ncol=2, frameon=False)
+    fig.tight_layout()
+    return fig
+
+def plot_mfdfa_spectrum(result):
+    if result is None:
+        return None
+    alpha = np.asarray(result.get("alpha", []), dtype=float)
+    f_alpha = np.asarray(result.get("f_alpha", []), dtype=float)
+    valid = np.isfinite(alpha) & np.isfinite(f_alpha)
+    if valid.sum() < 2:
+        return None
+
+    order = np.argsort(alpha[valid])
+    alpha_sorted = alpha[valid][order]
+    f_sorted = f_alpha[valid][order]
+
+    fig, ax = plt.subplots(figsize=(6.2, 4.2))
+    ax.plot(alpha_sorted, f_sorted, marker='o', linewidth=1.5, markersize=4)
+    ax.set_xlabel("α")
+    ax.set_ylabel("f(α)")
+    ax.set_title("Multifractal spectrum")
+    ax.grid(True, alpha=0.25)
+    fig.tight_layout()
+    return fig
+
+
+
+# ========================= REFERENCE COMPARISON =========================
+
+def interpret_complexity(width):
+    if width >= 0.8:
+        return "Высокая метаболическая сложность / адаптивность"
+    elif width >= 0.45:
+        return "Умеренная метаболическая сложность"
+    else:
+        return "Сниженная сложность, возможна потеря адаптивности"
+
+def compare_to_reference(current_width):
+    reference_width = 0.75
+    delta = current_width - reference_width
+
+    if delta > 0.15:
+        status = "Сложность выше условной нормы"
+    elif delta < -0.15:
+        status = "Сложность ниже условной нормы"
+    else:
+        status = "Близко к условной норме"
+
+    return {
+        "reference": reference_width,
+        "delta": delta,
+        "status": status
+    }
 
 # ======================== РЕЗУЛЬТАТЫ ========================
 if submitted:
@@ -1160,21 +1305,43 @@ if submitted:
         active_bone = [feature_names_ru.get(k, k) for k, v in bone_values.items() if v]
         st.write(active_bone if active_bone else "Нет отмеченных симптомов.")
 
-    if enable_mfdfa:
-        series = parse_series(glucose_series_text)
+    
+if enable_mfdfa:
+        uploaded_series = parse_uploaded_glucose_file(glucose_file)
+        manual_series = parse_series(glucose_series_text)
+        series = uploaded_series if uploaded_series is not None else manual_series
+
         st.subheader("🧠 Результат MF-DFA")
         if series is None:
-            st.info("Для MF-DFA нужен ряд длиной хотя бы ~16 значений. Сейчас данных недостаточно или формат не распознан.")
+            st.info(
+                "Нужен числовой ряд хотя бы из 12 значений. Можно вставить его вручную или загрузить файл .txt/.csv."
+            )
         else:
+            source_label = "из загруженного файла" if uploaded_series is not None else "из ручного ввода"
+            st.caption(f"Источник ряда: {source_label}. Всего значений: {len(series)}.")
             result = mfdfa(series)
             if result is None:
-                st.info("Ряд получен, но для устойчивого MF-DFA данных все еще мало или они слишком однородны.")
+                st.info(
+                    "Ряд получен, но для MF-DFA всё ещё мало данных или они слишком однородны. "
+                    "Попробуйте длиннее ряд — хотя бы 16–20 точек."
+                )
             else:
                 st.write(mfdfa_interpretation(result))
+
+                comparison = compare_to_reference(result["width"])
+                st.info(
+                    f"Сравнение с эталоном (ширина спектра {comparison['reference']:.2f}): "
+                    f"{comparison['status']}. Отклонение {comparison['delta']:+.3f}."
+                )
+                st.metric("Интерпретация по ширине спектра", interpret_complexity(result["width"]))
+
                 mfdfa_df = pd.DataFrame(
                     {
                         "q": result["q_vals"],
                         "H(q)": result["Hq"],
+                        "tau(q)": result["tau"],
+                        "alpha": result["alpha"],
+                        "f(alpha)": result["f_alpha"],
                     }
                 )
                 st.dataframe(mfdfa_df, use_container_width=True, hide_index=True)
@@ -1187,12 +1354,62 @@ if submitted:
                 else:
                     st.error("Для ряда глюкозы характерна высокая неоднородность — это исследовательский сигнал, а не диагноз.")
 
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig1 = plot_mfdfa_scaling(result)
+                    if fig1 is not None:
+                        st.pyplot(fig1, clear_figure=True, use_container_width=True)
+                        plt.close(fig1)
+                    else:
+                        st.info("Не удалось построить график масштабирования: мало валидных масштабов.")
+                with c2:
+                    fig2 = plot_mfdfa_spectrum(result)
+                    if fig2 is not None:
+                        st.pyplot(fig2, clear_figure=True, use_container_width=True)
+                        plt.close(fig2)
+                    else:
+                        st.info("Не удалось построить спектр: недостаточно валидных точек.")
+
+                with st.expander("Подробности MF-DFA"):
+                    st.write(f"**Ширина спектра:** {result['width']:.3f}")
+                    st.write(f"**Средний H(q):** {result['mean_h']:.3f}")
+                    st.write("**Интерпретация:** MF-DFA оценивает масштабную организацию колебаний глюкозы; это экспериментальный исследовательский показатель.")
+
 else:
     st.info("👆 Заполните форму выше и нажмите «Собрать медицинскую карту».")
+
 
 # ======================== ПОДВАЛ ========================
 st.markdown("---")
 st.caption(
     "Прототип создан в образовательных целях. Диагностические решения и назначения должен подтверждать врач. "
-    "MF-DFA блок является экспериментальным исследовательским модулем."
+    "MF-DFA блок является экспериментальным исследовательским модулем; ряд можно вводить вручную или загружать файлом."
 )
+
+# ========================= REFERENCE COMPARISON =========================
+
+def interpret_complexity(width):
+    if width >= 0.8:
+        return "Высокая метаболическая сложность / адаптивность"
+    elif width >= 0.45:
+        return "Умеренная метаболическая сложность"
+    else:
+        return "Сниженная сложность, возможна потеря адаптивности"
+
+def compare_to_reference(current_width):
+    reference_width = 0.75
+
+    delta = current_width - reference_width
+
+    if delta > 0.15:
+        status = "Сложность выше условной нормы"
+    elif delta < -0.15:
+        status = "Сложность ниже условной нормы"
+    else:
+        status = "Близко к условной норме"
+
+    return {
+        "reference": reference_width,
+        "delta": delta,
+        "status": status
+    }

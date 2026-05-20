@@ -1330,7 +1330,7 @@ for idx, feature in enumerate(bone_risk_features):
         bone_values[feature] = st.checkbox(ru_name, key=f"bone_{feature}")
 
 st.subheader("🩸 Дополнительные эндокринные блоки")
-st.caption("Здесь собраны редкие, но клинически значимые синдромы. Симптомы отображаются на русском языке.")
+st.caption("Здесь собраны редкие, но клинически значимые синдромы.")
 
 st.markdown("#### Синдром Кушинга")
 cushing_values = {}

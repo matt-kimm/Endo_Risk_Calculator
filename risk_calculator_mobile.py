@@ -130,10 +130,40 @@ feature_names_ru = {
     "prior fracture": "Перенесенный перелом",
     "glucocorticoids": "Длительный прием глюкокортикоидов",
     "low activity": "Низкая физическая активность",
+    "facial fullness": "Округлое (луноподобное) лицо",
+    "purple striae": "Фиолетовые растяжки",
+    "easy bruising": "Лёгкое появление синяков",
+    "proximal weakness": "Проксимальная мышечная слабость",
+    "centripetal obesity": "Центральное ожирение",
+    "hypertension": "Повышенное артериальное давление",
+    "depression": "Депрессивное настроение",
+    "hyperpigmentation": "Гиперпигментация кожи",
+    "salt craving": "Тяга к солёному",
+    "orthostatic dizziness": "Головокружение при вставании",
+    "nausea": "Тошнота",
+    "vomiting": "Рвота",
+    "weight loss": "Похудение",
+    "low blood pressure": "Низкое артериальное давление",
+    "autoimmune history": "Аутоиммунные заболевания в анамнезе",
+    "kidney stones": "Почечные камни",
+    "bone pain": "Боли в костях",
+    "abdominal pain": "Боль в животе",
+    "frequent urination": "Частое мочеиспускание",
+    "thirst": "Жажда",
+    "muscle weakness": "Мышечная слабость",
+    "mental fog": "Затуманенность мышления",
 }
 
 def badge(level: str) -> str:
     colors = {
+        "Низкая": "#1f8b4c",
+        "Лёгкая": "#1f8b4c",
+        "Легкая": "#1f8b4c",
+        "Умеренная": "#c77700",
+        "Средняя": "#c77700",
+        "Выраженная": "#c62828",
+        "Тяжёлая": "#c62828",
+        "Тяжелая": "#c62828",
         "Низкий": "#1f8b4c",
         "Умеренный": "#c77700",
         "Высокий": "#c62828",
@@ -334,6 +364,7 @@ expected_features = [
     "Obesity",
 ]
 
+
 # ======================== МУЛЬТИФАКТОРНЫЕ БЛОКИ ========================
 thyroid_symptoms = [
     "cold intolerance",
@@ -369,7 +400,469 @@ bone_risk_features = [
     "fatigue",
 ]
 
+cushing_symptoms = [
+    "facial fullness",
+    "purple striae",
+    "easy bruising",
+    "proximal weakness",
+    "hypertension",
+    "centripetal obesity",
+    "depression",
+]
+
+addison_symptoms = [
+    "hyperpigmentation",
+    "salt craving",
+    "orthostatic dizziness",
+    "nausea",
+    "vomiting",
+    "weight loss",
+    "low blood pressure",
+    "autoimmune history",
+]
+
+hyperparathyroidism_symptoms = [
+    "kidney stones",
+    "bone pain",
+    "constipation",
+    "abdominal pain",
+    "depression",
+    "muscle weakness",
+    "frequent urination",
+    "thirst",
+    "fatigue",
+]
+
+cushing_labels = {
+    "facial fullness": "Округлое (луноподобное) лицо",
+    "purple striae": "Фиолетовые растяжки",
+    "easy bruising": "Лёгкое появление синяков",
+    "proximal weakness": "Проксимальная мышечная слабость",
+    "hypertension": "Повышенное артериальное давление",
+    "centripetal obesity": "Центральное ожирение",
+    "depression": "Депрессивное настроение",
+}
+
+addison_labels = {
+    "hyperpigmentation": "Гиперпигментация кожи",
+    "salt craving": "Тяга к солёному",
+    "orthostatic dizziness": "Головокружение при вставании",
+    "nausea": "Тошнота",
+    "vomiting": "Рвота",
+    "weight loss": "Похудение",
+    "low blood pressure": "Низкое артериальное давление",
+    "autoimmune history": "Аутоиммунные заболевания в анамнезе",
+}
+
+hyperpara_labels = {
+    "kidney stones": "Почечные камни",
+    "bone pain": "Боли в костях",
+    "constipation": "Запоры",
+    "abdominal pain": "Боль в животе",
+    "depression": "Депрессивное настроение",
+    "muscle weakness": "Мышечная слабость",
+    "frequent urination": "Частое мочеиспускание",
+    "thirst": "Жажда",
+    "fatigue": "Утомляемость",
+}
+
+DISEASE_PRIORS = {
+    "Диабет": 0.12,
+    "Инсулинорезистентность / метаболический синдром": 0.20,
+    "Щитовидная железа: гипофункция": 0.08,
+    "Щитовидная железа: гиперфункция": 0.03,
+    "PCOS": 0.10,
+    "Эндокринная сеть": 0.15,
+    "Костная ткань / остеопения": 0.15,
+    "Синдром Кушинга": 0.01,
+    "Болезнь Аддисона": 0.005,
+    "Первичный гиперпаратиреоз": 0.01,
+}
+
+def count_positive_flags(flags: dict) -> int:
+    return int(sum(1 for v in flags.values() if bool(v)))
+
+def severity_label(score: float | None) -> str:
+    if score is None:
+        return "Не оценен"
+    if score < 20:
+        return "Низкая"
+    if score < 40:
+        return "Лёгкая"
+    if score < 60:
+        return "Умеренная"
+    if score < 80:
+        return "Выраженная"
+    return "Тяжёлая"
+
+def evidence_confidence(score: float, symptom_count: int = 0, lab_count: int = 0, red_flag_count: int = 0, family_history: bool = False) -> float:
+    conf = 30.0 + 0.35 * clamp(score) + 4.0 * min(symptom_count, 6) + 6.0 * min(lab_count, 4) + 7.0 * red_flag_count
+    if family_history:
+        conf += 4.0
+    return clamp(conf, 0.0, 100.0)
+
+def bayes_like_probability(score: float, prior: float = 0.05) -> float:
+    prior = float(min(max(prior, 1e-4), 0.9999))
+    prior_logit = math.log(prior / (1.0 - prior))
+    evidence_logit = (clamp(score) - 50.0) / 12.0
+    posterior = 1.0 / (1.0 + math.exp(-(prior_logit + evidence_logit)))
+    return clamp(100.0 * posterior, 0.0, 100.0)
+
+def assess_risk(score: float | None, disease_name: str, symptom_count: int = 0, lab_count: int = 0, red_flag_count: int = 0, family_history: bool = False) -> dict:
+    if score is None:
+        return {
+            "stage": "Не оценен",
+            "confidence": None,
+            "posterior": None,
+        }
+    return {
+        "stage": severity_label(score),
+        "confidence": evidence_confidence(score, symptom_count, lab_count, red_flag_count, family_history),
+        "posterior": bayes_like_probability(score, DISEASE_PRIORS.get(disease_name, 0.05)),
+    }
+
+def score_to_text(score: float) -> str:
+    return f"{clamp(score):.1f}%"
+
+def summarize_flags(flags):
+    if not flags:
+        return "Явно выраженных групп риска по анкете не выделено."
+    return " / ".join(flags)
+
 # ======================== ФУНКЦИИ РИСКА ========================
+@st.cache_resource
+def load_model():
+    try:
+        return joblib.load("diabetes_rf_model.pkl")
+    except Exception:
+        return None
+
+model = load_model()
+
+
+@st.cache_resource
+def load_optional_model(path):
+    try:
+        return joblib.load(path)
+    except Exception:
+        return None
+
+METABOLIC_MODEL_PATH = "metabolic_ml_model.pkl"
+THYROID_MODEL_PATH = "thyroid_ml_model.pkl"
+PCOS_MODEL_PATH = "pcos_ml_model.pkl"
+NETWORK_MODEL_PATH = "endo_network_ml_model.pkl"
+
+metabolic_model = load_optional_model(METABOLIC_MODEL_PATH)
+thyroid_model = load_optional_model(THYROID_MODEL_PATH)
+pcos_model = load_optional_model(PCOS_MODEL_PATH)
+network_model = load_optional_model(NETWORK_MODEL_PATH)
+
+def safe_positive_probability(model, row_df):
+    """Возвращает вероятность положительного класса в процентах или None."""
+    if model is None or not hasattr(model, "predict_proba"):
+        return None
+    try:
+        proba = model.predict_proba(row_df)[0]
+        if len(proba) == 1:
+            return float(proba[0]) * 100.0
+
+        classes = list(getattr(model, "classes_", []))
+        if 1 in classes:
+            pos_idx = classes.index(1)
+        elif "1" in classes:
+            pos_idx = classes.index("1")
+        else:
+            pos_idx = 1 if len(proba) > 1 else 0
+        return float(proba[pos_idx]) * 100.0
+    except Exception:
+        return None
+
+def activity_to_code(activity_level):
+    return {"Низкая": 0, "Средняя": 1, "Высокая": 2}.get(activity_level, 1)
+
+def make_metabolic_features(age, gender, bmi, waist_cm, activity_level, sleep_hours, fasting_glucose, hba1c, diabetes_symptom_values):
+    symptom_burden = int(sum(1 for v in diabetes_symptom_values.values() if v))
+    return pd.DataFrame([{
+        "age": age,
+        "gender": gender,
+        "bmi": float(round(bmi, 2)),
+        "waist_cm": float(round(waist_cm, 2)),
+        "sleep_hours": float(round(sleep_hours, 2)),
+        "activity_code": activity_to_code(activity_level),
+        "fasting_glucose": float(fasting_glucose) if fasting_glucose and fasting_glucose > 0 else np.nan,
+        "hba1c": float(hba1c) if hba1c and hba1c > 0 else np.nan,
+        "symptom_burden": symptom_burden,
+        "obesity_flag": int(bmi >= 30),
+        "central_obesity_flag": int(waist_cm >= (88 if gender == 1 else 94)),
+        "sleep_short_flag": int(sleep_hours < 7),
+    }])
+
+def make_thyroid_features(age, gender, thyroid_values, tsh_value, ft4_value):
+    return pd.DataFrame([{
+        "age": age,
+        "gender": gender,
+        "tsh": float(tsh_value) if tsh_value and tsh_value > 0 else np.nan,
+        "ft4": float(ft4_value) if ft4_value and ft4_value > 0 else np.nan,
+        "cold_intolerance": yes(thyroid_values.get("cold intolerance")),
+        "heat_intolerance": yes(thyroid_values.get("heat intolerance")),
+        "constipation": yes(thyroid_values.get("constipation")),
+        "diarrhea": yes(thyroid_values.get("diarrhea")),
+        "palpitations": yes(thyroid_values.get("palpitations")),
+        "tremor": yes(thyroid_values.get("tremor")),
+        "dry_skin": yes(thyroid_values.get("dry skin")),
+        "fatigue": yes(thyroid_values.get("fatigue")),
+        "anxiety": yes(thyroid_values.get("anxiety")),
+        "neck_swelling": yes(thyroid_values.get("neck swelling")),
+        "alopecia": yes(thyroid_values.get("Alopecia")),
+        "weakness": yes(thyroid_values.get("weakness")),
+    }])
+
+def make_pcos_features(age, gender, bmi, waist_cm, activity_level, sleep_hours, pcos_values, fasting_glucose, hba1c, insulin_resistance_score, tsh_value, ft4_value):
+    return pd.DataFrame([{
+        "age": age,
+        "gender": gender,
+        "bmi": float(round(bmi, 2)),
+        "waist_cm": float(round(waist_cm, 2)),
+        "sleep_hours": float(round(sleep_hours, 2)),
+        "activity_code": activity_to_code(activity_level),
+        "ir_score": float(insulin_resistance_score),
+        "fasting_glucose": float(fasting_glucose) if fasting_glucose and fasting_glucose > 0 else np.nan,
+        "hba1c": float(hba1c) if hba1c and hba1c > 0 else np.nan,
+        "tsh": float(tsh_value) if tsh_value and tsh_value > 0 else np.nan,
+        "ft4": float(ft4_value) if ft4_value and ft4_value > 0 else np.nan,
+        "irregular_periods": yes(pcos_values.get("irregular periods")),
+        "acne": yes(pcos_values.get("acne")),
+        "hirsutism": yes(pcos_values.get("hirsutism")),
+        "infertility": yes(pcos_values.get("infertility")),
+        "obesity": yes(pcos_values.get("Obesity")),
+        "alopecia": yes(pcos_values.get("Alopecia")),
+        "polyphagia": yes(pcos_values.get("Polyphagia")),
+    }])
+
+def make_network_features(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, obesity_score, metabolic_score, age, gender, bmi):
+    return pd.DataFrame([{
+        "diabetes_score": float(diabetes_score),
+        "ir_score": float(ir_score),
+        "hypothyroid_score": float(hypo_score),
+        "hyperthyroid_score": float(hyper_score),
+        "pcos_score": np.nan if pcos_score is None else float(pcos_score),
+        "bone_score": float(bone_score),
+        "obesity_score": float(obesity_score),
+        "metabolic_score": float(metabolic_score),
+        "age": age,
+        "gender": gender,
+        "bmi": float(round(bmi, 2)),
+        "cross_axis_burden": float(np.nanmean([
+            diabetes_score,
+            ir_score,
+            hypo_score,
+            hyper_score,
+            0.0 if pcos_score is None else pcos_score,
+            bone_score,
+        ])),
+    }])
+
+def ml_or_fallback_score(model, row_df, fallback_score):
+    ml_score = safe_positive_probability(model, row_df)
+    return ml_score if ml_score is not None else fallback_score
+
+# ======================== БАЗОВЫЕ ПРИЗНАКИ ДЛЯ ИСХОДНОГО ДИАБЕТИЧЕСКОГО МОДУЛЯ ========================
+expected_features = [
+    "Age",
+    "Gender",
+    "Polyuria",
+    "Polydipsia",
+    "sudden weight loss",
+    "weakness",
+    "Polyphagia",
+    "Genital thrush",
+    "visual blurring",
+    "Itching",
+    "Irritability",
+    "delayed healing",
+    "partial paresis",
+    "muscle stiffness",
+    "Alopecia",
+    "Obesity",
+]
+
+# ======================== МУЛЬТИФАКТОРНЫЕ БЛОКИ ========================
+thyroid_symptoms = [
+    "cold intolerance",
+    "heat intolerance",
+    "constipation",
+    "diarrhea",
+    "palpitations",
+    "tremor",
+    "dry skin",
+    "fatigue",
+    "anxiety",
+    "neck swelling",
+    "Alopecia",
+    "weakness",
+]
+
+pcos_symptoms = [
+    "irregular periods",
+    "acne",
+    "hirsutism",
+    "infertility",
+    "Obesity",
+    "Alopecia",
+    "Polyphagia",
+]
+
+bone_risk_features = [
+    "postmenopausal",
+    "prior fracture",
+    "glucocorticoids",
+    "low activity",
+    "dry skin",
+    "fatigue",
+]
+
+cushing_symptoms = [
+    "facial fullness",
+    "purple striae",
+    "easy bruising",
+    "proximal weakness",
+    "hypertension",
+    "centripetal obesity",
+    "depression",
+]
+
+addison_symptoms = [
+    "hyperpigmentation",
+    "salt craving",
+    "orthostatic dizziness",
+    "nausea",
+    "vomiting",
+    "weight loss",
+    "low blood pressure",
+    "autoimmune history",
+]
+
+hyperparathyroidism_symptoms = [
+    "kidney stones",
+    "bone pain",
+    "constipation",
+    "abdominal pain",
+    "depression",
+    "muscle weakness",
+    "frequent urination",
+    "thirst",
+    "fatigue",
+]
+
+cushing_labels = {
+    "facial fullness": "Округлое (луноподобное) лицо",
+    "purple striae": "Фиолетовые растяжки",
+    "easy bruising": "Лёгкое появление синяков",
+    "proximal weakness": "Проксимальная мышечная слабость",
+    "hypertension": "Повышенное артериальное давление",
+    "centripetal obesity": "Центральное ожирение",
+    "depression": "Депрессивное настроение",
+}
+
+addison_labels = {
+    "hyperpigmentation": "Гиперпигментация кожи",
+    "salt craving": "Тяга к солёному",
+    "orthostatic dizziness": "Головокружение при вставании",
+    "nausea": "Тошнота",
+    "vomiting": "Рвота",
+    "weight loss": "Похудение",
+    "low blood pressure": "Низкое артериальное давление",
+    "autoimmune history": "Аутоиммунные заболевания в анамнезе",
+}
+
+hyperpara_labels = {
+    "kidney stones": "Почечные камни",
+    "bone pain": "Боли в костях",
+    "constipation": "Запоры",
+    "abdominal pain": "Боль в животе",
+    "depression": "Депрессивное настроение",
+    "muscle weakness": "Мышечная слабость",
+    "frequent urination": "Частое мочеиспускание",
+    "thirst": "Жажда",
+    "fatigue": "Утомляемость",
+}
+
+DISEASE_PRIORS = {
+    "Диабет": 0.12,
+    "Инсулинорезистентность / метаболический синдром": 0.20,
+    "Щитовидная железа: гипофункция": 0.08,
+    "Щитовидная железа: гиперфункция": 0.03,
+    "PCOS": 0.10,
+    "Эндокринная сеть": 0.15,
+    "Костная ткань / остеопения": 0.15,
+    "Синдром Кушинга": 0.01,
+    "Болезнь Аддисона": 0.005,
+    "Первичный гиперпаратиреоз": 0.01,
+}
+
+def count_positive_flags(flags: dict) -> int:
+    return int(sum(1 for v in flags.values() if bool(v)))
+
+def severity_label(score: float | None) -> str:
+    if score is None:
+        return "Не оценен"
+    if score < 20:
+        return "Низкая"
+    if score < 40:
+        return "Лёгкая"
+    if score < 60:
+        return "Умеренная"
+    if score < 80:
+        return "Выраженная"
+    return "Тяжёлая"
+
+def evidence_confidence(score: float, symptom_count: int = 0, lab_count: int = 0, red_flag_count: int = 0, family_history: bool = False) -> float:
+    conf = 30.0 + 0.35 * clamp(score) + 4.0 * min(symptom_count, 6) + 6.0 * min(lab_count, 4) + 7.0 * red_flag_count
+    if family_history:
+        conf += 4.0
+    return clamp(conf, 0.0, 100.0)
+
+def bayes_like_probability(score: float, prior: float = 0.05) -> float:
+    prior = float(min(max(prior, 1e-4), 0.9999))
+    prior_logit = math.log(prior / (1.0 - prior))
+    evidence_logit = (clamp(score) - 50.0) / 12.0
+    posterior = 1.0 / (1.0 + math.exp(-(prior_logit + evidence_logit)))
+    return clamp(100.0 * posterior, 0.0, 100.0)
+
+def assess_risk(score: float | None, disease_name: str, symptom_count: int = 0, lab_count: int = 0, red_flag_count: int = 0, family_history: bool = False) -> dict:
+    if score is None:
+        return {
+            "stage": "Не оценен",
+            "confidence": None,
+            "posterior": None,
+        }
+    return {
+        "stage": severity_label(score),
+        "confidence": evidence_confidence(score, symptom_count, lab_count, red_flag_count, family_history),
+        "posterior": bayes_like_probability(score, DISEASE_PRIORS.get(disease_name, 0.05)),
+    }
+
+def diabetes_age_modifier(age):
+    """
+    Мягкий возрастной модификатор.
+    Возраст НЕ должен доминировать над симптомами и лабораториями.
+    """
+
+    if age < 35:
+        return 1.00
+
+    elif age < 45:
+        return 1.05
+
+    elif age < 55:
+        return 1.10
+
+    elif age < 65:
+        return 1.15
+
+    else:
+        return 1.20
+
 def diabetes_probability_from_model(age, gender, symptom_values, family_history_diabetes):
     input_data = [age, gender]
     for feature in expected_features[2:]:
@@ -391,7 +884,8 @@ def diabetes_probability_from_model(age, gender, symptom_values, family_history_
 
     # Безопасный эвристический fallback
     score = 0.0
-    score += 0.8 * (age - 30) if age >= 30 else 0.0
+    score = min(score, 97)
+    score *= diabetes_age_modifier(age)
     score += 12 * yes(symptom_values.get("Polyuria"))
     score += 12 * yes(symptom_values.get("Polydipsia"))
     score += 10 * yes(symptom_values.get("Polyphagia"))
@@ -598,7 +1092,69 @@ def metabolic_syndrome_proxy(age, sex, bmi, waist_cm, activity_level, fasting_gl
 
     return clamp(score)
 
-def generate_connections(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, sex):
+def cushing_proxy(age, cushing_values, bmi, glucocorticoids, fasting_glucose, hba1c):
+    score = 0.0
+    score += 16 * yes(cushing_values.get("facial fullness"))
+    score += 16 * yes(cushing_values.get("purple striae"))
+    score += 12 * yes(cushing_values.get("easy bruising"))
+    score += 14 * yes(cushing_values.get("proximal weakness"))
+    score += 10 * yes(cushing_values.get("hypertension"))
+    score += 12 * yes(cushing_values.get("centripetal obesity"))
+    score += 8 * yes(cushing_values.get("depression"))
+
+    if glucocorticoids:
+        score += 18
+    if bmi >= 30:
+        score += 6
+    if age >= 40:
+        score += 4
+    if fasting_glucose and fasting_glucose >= 100:
+        score += 4
+    if hba1c and hba1c >= 5.7:
+        score += 4
+
+    return clamp(score)
+
+def addison_proxy(age, addison_values):
+    score = 0.0
+    score += 16 * yes(addison_values.get("hyperpigmentation"))
+    score += 14 * yes(addison_values.get("salt craving"))
+    score += 14 * yes(addison_values.get("orthostatic dizziness"))
+    score += 12 * yes(addison_values.get("nausea"))
+    score += 12 * yes(addison_values.get("vomiting"))
+    score += 14 * yes(addison_values.get("weight loss"))
+    score += 16 * yes(addison_values.get("low blood pressure"))
+    score += 10 * yes(addison_values.get("autoimmune history"))
+
+    if age < 50:
+        score += 3
+
+    return clamp(score)
+
+def hyperparathyroid_proxy(age, hyperpara_values, serum_calcium):
+    score = 0.0
+    score += 16 * yes(hyperpara_values.get("kidney stones"))
+    score += 12 * yes(hyperpara_values.get("bone pain"))
+    score += 10 * yes(hyperpara_values.get("constipation"))
+    score += 8 * yes(hyperpara_values.get("abdominal pain"))
+    score += 8 * yes(hyperpara_values.get("depression"))
+    score += 10 * yes(hyperpara_values.get("muscle weakness"))
+    score += 8 * yes(hyperpara_values.get("frequent urination"))
+    score += 8 * yes(hyperpara_values.get("thirst"))
+    score += 8 * yes(hyperpara_values.get("fatigue"))
+
+    if serum_calcium and serum_calcium > 0:
+        if serum_calcium >= 10.5:
+            score += min(28, (serum_calcium - 10.5) * 8)
+        elif serum_calcium >= 10.0:
+            score += 8
+
+    if age >= 50:
+        score += 4
+
+    return clamp(score)
+
+def generate_connections(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, sex, cushing_score=None, addison_score=None, hyperpara_score=None):
     items = []
     if diabetes_score >= 60 and ir_score >= 60:
         items.append("Вероятен общий метаболический драйвер: инсулинорезистентность.")
@@ -614,9 +1170,15 @@ def generate_connections(diabetes_score, ir_score, hypo_score, hyper_score, pcos
         items.append("При нарушении углеводного обмена стоит помнить о более высоком риске осложнений со стороны костей и сосудов.")
     if sex == 0 and pcos_score is not None:
         items.append("PCOS не оценивается: блок включается только для женщин.")
+    if cushing_score is not None and cushing_score >= 50:
+        items.append("Признаки гиперкортицизма могут усиливать инсулинорезистентность, давление и риск потери костной массы.")
+    if addison_score is not None and addison_score >= 50:
+        items.append("Аутоиммунный профиль и симптомы Аддисона стоит сопоставить с другими эндокринными осами.")
+    if hyperpara_score is not None and hyperpara_score >= 50:
+        items.append("Гиперкальциемия и костные симптомы могут сочетаться с повышенным риском камней и остеопении.")
     return items
 
-def generate_next_steps(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, bmi, fasting_glucose, hba1c):
+def generate_next_steps(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, bmi, fasting_glucose, hba1c, cushing_score=None, addison_score=None, hyperpara_score=None, serum_calcium=None):
     steps = []
     if diabetes_score >= 60 or (hba1c and hba1c >= 6.5) or (fasting_glucose and fasting_glucose >= 126):
         steps.append("Эндокринолог в ближайшее время + анализ HbA1c, глюкоза натощак, при необходимости ОГТТ.")
@@ -633,10 +1195,40 @@ def generate_next_steps(diabetes_score, ir_score, hypo_score, hyper_score, pcos_
         steps.append("Для женщин: обсудить PCOS, регулярность цикла, андрогенные симптомы и метаболический скрининг.")
     if bone_score >= 50:
         steps.append("Оценить витамин D, кальций, DEXA/денситометрию по показаниям и факторы падения костной массы.")
+    if cushing_score is not None and cushing_score >= 50:
+        steps.append("Обсудить признаки гиперкортицизма; при длительном приёме глюкокортикоидов нужна очная оценка.")
+    if addison_score is not None and addison_score >= 50:
+        steps.append("Проверить электролиты, утренний кортизол и АСТН по назначению врача при подозрении на Аддисона.")
+    if hyperpara_score is not None and hyperpara_score >= 50:
+        steps.append("Проверить кальций, альбумин, витамин D, ПТГ и риск почечных камней.")
+    if serum_calcium is not None and serum_calcium >= 10.5:
+        steps.append("Повышенный кальций требует перепроверки и очной оценки, особенно при костных симптомах.")
 
     return steps
 
-# ======================== ЗАГОЛОВОК ========================
+
+def generate_red_flags(diabetes_score, ir_score, hypo_score, hyper_score, pcos_score, bone_score, cushing_score, addison_score, hyperpara_score, fasting_glucose, hba1c, tsh_value, ft4_value, serum_calcium):
+    flags = []
+    if fasting_glucose and fasting_glucose >= 126:
+        flags.append("Глюкоза натощак в диагностическом диапазоне диабета.")
+    if hba1c and hba1c >= 6.5:
+        flags.append("HbA1c в диагностическом диапазоне диабета.")
+    if tsh_value and tsh_value >= 10:
+        flags.append("ТТГ выше 10 мМЕ/л — требуется очная оценка щитовидной железы.")
+    if tsh_value and tsh_value < 0.1 and ft4_value and ft4_value > 1.8:
+        flags.append("Профиль совместим с выраженным тиреотоксикозом.")
+    if cushing_score is not None and cushing_score >= 70:
+        flags.append("Картина слабо совместима с гиперкортицизмом — нужна очная оценка.")
+    if addison_score is not None and addison_score >= 70:
+        flags.append("Картина требует исключения надпочечниковой недостаточности.")
+    if hyperpara_score is not None and hyperpara_score >= 70:
+        flags.append("Подозрение на гиперкальциемию / гиперпаратиреоз.")
+    if serum_calcium and serum_calcium >= 11.0:
+        flags.append("Значимо повышенный кальций — нужна перепроверка.")
+    if bone_score >= 75:
+        flags.append("Высокий костный риск — имеет смысл обсудить денситометрию.")
+    return flags
+
 st.title("🩺 Эндокринная медицинская карта")
 st.markdown(
     """
@@ -737,6 +1329,33 @@ for idx, feature in enumerate(bone_risk_features):
     with (bone_col1 if idx % 2 == 0 else bone_col2):
         bone_values[feature] = st.checkbox(ru_name, key=f"bone_{feature}")
 
+st.subheader("🩸 Дополнительные эндокринные блоки")
+st.caption("Здесь собраны редкие, но клинически значимые синдромы. Симптомы отображаются на русском языке.")
+
+st.markdown("#### Синдром Кушинга")
+cushing_values = {}
+cushing_col1, cushing_col2 = st.columns(2)
+for idx, feature in enumerate(cushing_symptoms):
+    ru_name = cushing_labels.get(feature, feature.replace("_", " ").title())
+    with (cushing_col1 if idx % 2 == 0 else cushing_col2):
+        cushing_values[feature] = st.checkbox(ru_name, key=f"cushing_{feature}")
+
+st.markdown("#### Болезнь Аддисона")
+addison_values = {}
+addison_col1, addison_col2 = st.columns(2)
+for idx, feature in enumerate(addison_symptoms):
+    ru_name = addison_labels.get(feature, feature.replace("_", " ").title())
+    with (addison_col1 if idx % 2 == 0 else addison_col2):
+        addison_values[feature] = st.checkbox(ru_name, key=f"addison_{feature}")
+
+st.markdown("#### Первичный гиперпаратиреоз")
+hyperpara_values = {}
+hyperpara_col1, hyperpara_col2 = st.columns(2)
+for idx, feature in enumerate(hyperparathyroidism_symptoms):
+    ru_name = hyperpara_labels.get(feature, feature.replace("_", " ").title())
+    with (hyperpara_col1 if idx % 2 == 0 else hyperpara_col2):
+        hyperpara_values[feature] = st.checkbox(ru_name, key=f"hyperpara_{feature}")
+
 st.subheader("🧪 Анализы (если уже есть)")
 col_fg, col_hba1c, col_tsh, col_ft4 = st.columns(4)
 with col_fg:
@@ -747,6 +1366,8 @@ with col_tsh:
     tsh_value = st.number_input("ТТГ, мМЕ/л", min_value=0.0, max_value=100.0, value=0.0, step=0.1, help="0 = не указывать")
 with col_ft4:
     ft4_value = st.number_input("Св. T4, нг/дл", min_value=0.0, max_value=10.0, value=0.0, step=0.1, help="0 = не указывать")
+
+serum_calcium = st.number_input("Кальций общий, мг/дл", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
 
 st.subheader("📈 Мультифрактальный анализ гликемии (экспериментально)")
 st.caption("Если есть ряд глюкозы по времени, можно вставить его сюда. Это исследовательский блок, а не стандартная клиническая методика.")
@@ -1020,6 +1641,9 @@ if submitted:
     pcos_rule_score = pcos_proxy(age, gender, pcos_values, bmi, ir_score, fasting_glucose, hba1c)
     bone_score = osteoporosis_proxy(age, gender, bone_values, bmi, family_history_osteoporosis)
     metabolic_rule_score = metabolic_syndrome_proxy(age, gender, bmi, waist_cm, activity_level, fasting_glucose, hba1c, ir_score, family_history_diabetes)
+    cushing_rule_score = cushing_proxy(age, cushing_values, bmi, bone_values.get("glucocorticoids"), fasting_glucose, hba1c)
+    addison_rule_score = addison_proxy(age, addison_values)
+    hyperpara_rule_score = hyperparathyroid_proxy(age, hyperpara_values, serum_calcium)
 
     metabolic_ml_df = make_metabolic_features(age, gender, bmi, waist_cm, activity_level, sleep_hours, fasting_glucose, hba1c, diabetes_symptom_values)
     thyroid_ml_df = make_thyroid_features(age, gender, thyroid_values, tsh_value, ft4_value)
@@ -1037,13 +1661,16 @@ if submitted:
     network_score = safe_positive_probability(network_model, endo_network_df)
     if network_score is None:
         network_score = clamp(
-            0.18 * diabetes_score
-            + 0.18 * ir_score
-            + 0.14 * hypothyroid_score
-            + 0.14 * hyperthyroid_score
-            + 0.14 * (0.0 if pcos_score is None else pcos_score)
-            + 0.12 * bone_score
+            0.15 * diabetes_score
+            + 0.15 * ir_score
+            + 0.12 * hypothyroid_score
+            + 0.12 * hyperthyroid_score
+            + 0.10 * (0.0 if pcos_score is None else pcos_score)
+            + 0.10 * bone_score
             + 0.10 * obesity_score
+            + 0.08 * cushing_rule_score
+            + 0.05 * addison_rule_score
+            + 0.03 * hyperpara_rule_score
         )
 
     diabetes_level = risk_level(diabetes_score)
@@ -1055,6 +1682,9 @@ if submitted:
     bone_level = risk_level(bone_score)
     metabolic_level = risk_level(metabolic_score)
     network_level = risk_level(network_score)
+    cushing_level = risk_level(cushing_rule_score)
+    addison_level = risk_level(addison_rule_score)
+    hyperpara_level = risk_level(hyperpara_rule_score)
 
     diabetes_advice = advice_by_level(
         diabetes_level,
@@ -1105,6 +1735,100 @@ if submitted:
         "Есть смысл обсудить оценку костной ткани и факторов остеопороза.",
     )
 
+    cushing_advice = advice_by_level(
+        cushing_level,
+        "Выраженных признаков гиперкортицизма немного.",
+        "Стоит перепроверить давление, вес, стрии и факт приёма глюкокортикоидов.",
+        "Картина может соответствовать гиперкортицизму; нужна очная оценка.",
+    )
+
+    addison_advice = advice_by_level(
+        addison_level,
+        "Выраженных признаков надпочечниковой недостаточности немного.",
+        "Стоит обратить внимание на давление, соль, тошноту и потерю веса.",
+        "Нужно очно исключать болезнь Аддисона.",
+    )
+
+    hyperpara_advice = advice_by_level(
+        hyperpara_level,
+        "Выраженных признаков гиперпаратиреоза немного.",
+        "Есть смысл перепроверить кальций и симптомы со стороны костей / почек.",
+        "Нужна очная оценка на гиперпаратиреоз и гиперкальциемию.",
+    )
+
+    diabetes_assessment = assess_risk(
+        diabetes_score,
+        "Диабет",
+        symptom_count=count_positive_flags(diabetes_symptom_values),
+        lab_count=int(fasting_glucose > 0) + int(hba1c > 0),
+        red_flag_count=1 if (fasting_glucose and fasting_glucose >= 126) or (hba1c and hba1c >= 6.5) else 0,
+        family_history=family_history_diabetes,
+    )
+    ir_assessment = assess_risk(
+        ir_score,
+        "Инсулинорезистентность / метаболический синдром",
+        symptom_count=count_positive_flags(diabetes_symptom_values),
+        lab_count=int(fasting_glucose > 0) + int(hba1c > 0),
+        red_flag_count=1 if bmi >= 30 else 0,
+        family_history=family_history_diabetes,
+    )
+    hypo_assessment = assess_risk(
+        hypothyroid_score,
+        "Щитовидная железа: гипофункция",
+        symptom_count=count_positive_flags(thyroid_values),
+        lab_count=int(tsh_value > 0) + int(ft4_value > 0),
+        red_flag_count=1 if tsh_value and tsh_value >= 10 else 0,
+        family_history=family_history_thyroid,
+    )
+    hyper_assessment = assess_risk(
+        hyperthyroid_score,
+        "Щитовидная железа: гиперфункция",
+        symptom_count=count_positive_flags(thyroid_values),
+        lab_count=int(tsh_value > 0) + int(ft4_value > 0),
+        red_flag_count=1 if (tsh_value and tsh_value < 0.1 and ft4_value and ft4_value > 1.8) else 0,
+        family_history=family_history_thyroid,
+    )
+    pcos_assessment = None if pcos_score is None else assess_risk(
+        pcos_score,
+        "PCOS",
+        symptom_count=count_positive_flags(pcos_values),
+        lab_count=int(fasting_glucose > 0) + int(hba1c > 0),
+        red_flag_count=0,
+        family_history=False,
+    )
+    bone_assessment = assess_risk(
+        bone_score,
+        "Костная ткань / остеопения",
+        symptom_count=count_positive_flags(bone_values),
+        lab_count=0,
+        red_flag_count=1 if family_history_osteoporosis else 0,
+        family_history=family_history_osteoporosis,
+    )
+    cushing_assessment = assess_risk(
+        cushing_rule_score,
+        "Синдром Кушинга",
+        symptom_count=count_positive_flags(cushing_values),
+        lab_count=int(fasting_glucose > 0) + int(hba1c > 0),
+        red_flag_count=1 if cushing_rule_score >= 70 else 0,
+        family_history=False,
+    )
+    addison_assessment = assess_risk(
+        addison_rule_score,
+        "Болезнь Аддисона",
+        symptom_count=count_positive_flags(addison_values),
+        lab_count=0,
+        red_flag_count=1 if addison_rule_score >= 70 else 0,
+        family_history=False,
+    )
+    hyperpara_assessment = assess_risk(
+        hyperpara_rule_score,
+        "Первичный гиперпаратиреоз",
+        symptom_count=count_positive_flags(hyperpara_values),
+        lab_count=int(serum_calcium > 0),
+        red_flag_count=1 if (serum_calcium and serum_calcium >= 11.0) else 0,
+        family_history=False,
+    )
+
     connections = generate_connections(
         diabetes_score,
         ir_score,
@@ -1113,6 +1837,9 @@ if submitted:
         pcos_score if pcos_score is not None else 0.0,
         bone_score,
         gender,
+        cushing_rule_score,
+        addison_rule_score,
+        hyperpara_rule_score,
     )
 
     next_steps = generate_next_steps(
@@ -1125,6 +1852,10 @@ if submitted:
         bmi,
         fasting_glucose,
         hba1c,
+        cushing_rule_score,
+        addison_rule_score,
+        hyperpara_rule_score,
+        serum_calcium,
     )
 
     # Результаты — одна связанная карта
@@ -1148,10 +1879,37 @@ if submitted:
     with m6:
         st.metric("ИМТ", f"{bmi:.1f}")
 
-    st.progress(clamp(max(diabetes_score, ir_score, hypothyroid_score, hyperthyroid_score, bone_score) / 100.0))
+    m7, m8, m9 = st.columns(3)
+    with m7:
+        st.metric("Кушинг", score_to_text(cushing_rule_score))
+    with m8:
+        st.metric("Аддисон", score_to_text(addison_rule_score))
+    with m9:
+        st.metric("Гиперпаратиреоз", score_to_text(hyperpara_rule_score))
+
+    st.progress(clamp(max(diabetes_score, ir_score, hypothyroid_score, hyperthyroid_score, bone_score, cushing_rule_score, addison_rule_score, hyperpara_rule_score) / 100.0))
 
     if diabetes_fallback_error:
         st.warning(diabetes_fallback_error)
+
+    red_flags = generate_red_flags(
+        diabetes_score,
+        ir_score,
+        hypothyroid_score,
+        hyperthyroid_score,
+        pcos_score,
+        bone_score,
+        cushing_rule_score,
+        addison_rule_score,
+        hyperpara_rule_score,
+        fasting_glucose,
+        hba1c,
+        tsh_value,
+        ft4_value,
+        serum_calcium,
+    )
+    if red_flags:
+        st.error("Красные флаги: " + " | ".join(red_flags))
 
     # Общий вывод
     strong_points = []
@@ -1165,6 +1923,12 @@ if submitted:
         strong_points.append("PCOS")
     if bone_score >= 60:
         strong_points.append("костная ткань")
+    if cushing_rule_score >= 60:
+        strong_points.append("гиперкортицизм")
+    if addison_rule_score >= 60:
+        strong_points.append("надпочечники")
+    if hyperpara_rule_score >= 60:
+        strong_points.append("кальциевый обмен")
 
     if strong_points:
         st.error("Зоны наибольшего внимания: " + ", ".join(strong_points) + ".")
@@ -1176,99 +1940,107 @@ if submitted:
         {
             "name": "Диабет",
             "score": diabetes_score,
-            "level": diabetes_level,
+            "assessment": diabetes_assessment,
             "advice": diabetes_advice,
-            "drivers": [
-                "Симптомы диабета",
-                "Возраст",
-                "Вес / метаболическая нагрузка",
-                "Наследственность" if family_history_diabetes else None,
-            ],
+            "drivers": ["Симптомы диабета", "Возраст", "Вес / метаболическая нагрузка", "Наследственность" if family_history_diabetes else None],
+            "signals": [feature_names_ru.get(k, k) for k, v in diabetes_symptom_values.items() if v],
         },
         {
             "name": "Инсулинорезистентность / метаболический синдром",
             "score": ir_score,
-            "level": ir_level,
+            "assessment": ir_assessment,
             "advice": ir_advice,
-            "drivers": [
-                "ИМТ",
-                "Талия",
-                "Сон и активность",
-                "Симптомы углеводного обмена",
-                "Наследственность" if family_history_diabetes else None,
-            ],
+            "drivers": ["ИМТ", "Талия", "Сон и активность", "Симптомы углеводного обмена", "Наследственность" if family_history_diabetes else None],
+            "signals": [
+                f"ИМТ {bmi:.1f}",
+                f"Талия {waist_cm:.0f} см",
+                f"Сон {sleep_hours:.1f} ч/сутки",
+            ] + [feature_names_ru.get(k, k) for k, v in diabetes_symptom_values.items() if v][:4],
         },
         {
             "name": "Щитовидная железа: гипофункция",
             "score": hypothyroid_score,
-            "level": hypo_level,
+            "assessment": hypo_assessment,
             "advice": hypo_advice,
-            "drivers": [
-                "Холод / запоры / сухость кожи",
-                "Утомляемость",
-                "ТТГ / свободный T4",
-                "Наследственность" if family_history_thyroid else None,
-            ],
+            "drivers": ["Холод / запоры / сухость кожи", "Утомляемость", "ТТГ / свободный T4", "Наследственность" if family_history_thyroid else None],
+            "signals": [feature_names_ru.get(k, k) for k, v in thyroid_values.items() if v and k in {"cold intolerance", "constipation", "fatigue", "dry skin", "Alopecia", "weakness", "neck swelling"}],
         },
         {
             "name": "Щитовидная железа: гиперфункция",
             "score": hyperthyroid_score,
-            "level": hyper_level,
+            "assessment": hyper_assessment,
             "advice": hyper_advice,
-            "drivers": [
-                "Жара / сердцебиение / тремор",
-                "Потеря веса",
-                "ТТГ / свободный T4",
-                "Наследственность" if family_history_thyroid else None,
-            ],
+            "drivers": ["Жара / сердцебиение / тремор", "Потеря веса", "ТТГ / свободный T4", "Наследственность" if family_history_thyroid else None],
+            "signals": [feature_names_ru.get(k, k) for k, v in thyroid_values.items() if v and k in {"heat intolerance", "palpitations", "tremor", "anxiety", "diarrhea", "sudden weight loss", "neck swelling", "weakness"}],
         },
         {
             "name": "PCOS",
             "score": pcos_score,
-            "level": pcos_level if pcos_score is not None else "Не оценен",
+            "assessment": pcos_assessment,
             "advice": pcos_advice,
-            "drivers": [
-                "Нерегулярный цикл",
-                "Андрогенные симптомы",
-                "Инсулинорезистентность",
-            ],
+            "drivers": ["Нерегулярный цикл", "Андрогенные симптомы", "Инсулинорезистентность"],
+            "signals": [feature_names_ru.get(k, k) for k, v in pcos_values.items() if v],
         },
         {
             "name": "Эндокринная сеть",
             "score": network_score,
-            "level": network_level,
+            "assessment": assess_risk(network_score, "Эндокринная сеть", symptom_count=0, lab_count=0, red_flag_count=len(red_flags), family_history=False),
             "advice": network_advice,
-            "drivers": [
-                "Совокупность всех осей",
-                "Перекрёстные влияния",
-                "Суммарная метаболическая нагрузка",
-            ],
+            "drivers": ["Совокупность всех осей", "Перекрёстные влияния", "Суммарная метаболическая нагрузка"],
+            "signals": ["Интегральная оценка взаимосвязей"],
         },
         {
             "name": "Костная ткань / остеопения",
             "score": bone_score,
-            "level": bone_level,
+            "assessment": bone_assessment,
             "advice": bone_advice,
-            "drivers": [
-                "Возраст",
-                "Переломы / стероиды",
-                "Низкая активность / низкий ИМТ",
-                "Наследственность" if family_history_osteoporosis else None,
-            ],
+            "drivers": ["Возраст", "Переломы / стероиды", "Низкая активность / низкий ИМТ", "Наследственность" if family_history_osteoporosis else None],
+            "signals": [feature_names_ru.get(k, k) for k, v in bone_values.items() if v],
+        },
+        {
+            "name": "Синдром Кушинга",
+            "score": cushing_rule_score,
+            "assessment": cushing_assessment,
+            "advice": cushing_advice,
+            "drivers": ["Гиперкортицизм", "Глюкокортикоиды", "Центральное ожирение", "Гипертензия"],
+            "signals": [cushing_labels.get(k, k) for k, v in cushing_values.items() if v],
+        },
+        {
+            "name": "Болезнь Аддисона",
+            "score": addison_rule_score,
+            "assessment": addison_assessment,
+            "advice": addison_advice,
+            "drivers": ["Аутоиммунность", "Гипотензия", "Тяга к солёному", "Гиперпигментация"],
+            "signals": [addison_labels.get(k, k) for k, v in addison_values.items() if v],
+        },
+        {
+            "name": "Первичный гиперпаратиреоз",
+            "score": hyperpara_rule_score,
+            "assessment": hyperpara_assessment,
+            "advice": hyperpara_advice,
+            "drivers": ["Кальций", "Почки", "Кости", "Когнитивные/общие симптомы"],
+            "signals": [hyperpara_labels.get(k, k) for k, v in hyperpara_values.items() if v],
         },
     ]
 
     for card in disease_cards:
         if card["score"] is None:
             continue
-        # убираем None из drivers
+        assessment = card.get("assessment", {})
         drivers = [d for d in card["drivers"] if d is not None]
+        signals = card.get("signals", [])
+        confidence_text = "—" if assessment.get("confidence") is None else f"{assessment['confidence']:.0f}%"
+        posterior_text = "—" if assessment.get("posterior") is None else f"{assessment['posterior']:.0f}%"
+        stage_text = assessment.get("stage", "Не оценен")
+
         st.markdown(
             f"""
 <div class="card">
-  <div><strong>{card['name']}</strong> {badge(card['level'])}</div>
+  <div><strong>{card['name']}</strong> {badge(stage_text)}</div>
   <div style="margin-top:0.35rem;"><strong>Риск:</strong> {score_to_text(card['score'])}</div>
+  <div style="margin-top:0.25rem;"><strong>Стадия:</strong> {stage_text} &nbsp; <strong>Уверенность:</strong> {confidence_text} &nbsp; <strong>Bayes-постериор:</strong> {posterior_text}</div>
   <div class="muted" style="margin-top:0.35rem;"><strong>Основные драйверы:</strong> {", ".join(drivers)}</div>
+  <div class="muted" style="margin-top:0.25rem;"><strong>Отмеченные признаки:</strong> {", ".join(signals) if signals else "Нет выраженных симптомов по этому блоку."}</div>
   <div style="margin-top:0.5rem;">{card["advice"]}</div>
 </div>
 """,
@@ -1297,6 +2069,9 @@ if submitted:
         ("PCOS", "—" if pcos_score is None else f"{score_to_text(pcos_score)} ({pcos_level})"),
         ("Эндокринная сеть", f"{score_to_text(network_score)} ({network_level})"),
         ("Костный риск", f"{score_to_text(bone_score)} ({bone_level})"),
+        ("Кушинг", f"{score_to_text(cushing_rule_score)} ({cushing_level})"),
+        ("Аддисон", f"{score_to_text(addison_rule_score)} ({addison_level})"),
+        ("Гиперпаратиреоз", f"{score_to_text(hyperpara_rule_score)} ({hyperpara_level})"),
     ]
     summary_df = pd.DataFrame(summary_rows[1:], columns=summary_rows[0])
     st.dataframe(summary_df, use_container_width=True, hide_index=True)
@@ -1309,6 +2084,7 @@ if submitted:
         st.write(f"**Талия:** {waist_cm:.0f} см")
         st.write(f"**Сон:** {sleep_hours:.1f} ч/сутки")
         st.write(f"**Активность:** {activity_level}")
+        st.write(f"**Кальций общий:** {serum_calcium:.1f} мг/дл")
         st.write(f"**Наследственность по диабету:** {'Да' if family_history_diabetes else 'Нет'}")
         st.write(f"**Наследственность по щитовидной железе:** {'Да' if family_history_thyroid else 'Нет'}")
         st.write(f"**Наследственность по остеопорозу:** {'Да' if family_history_osteoporosis else 'Нет'}")
@@ -1330,7 +2106,18 @@ if submitted:
         active_bone = [feature_names_ru.get(k, k) for k, v in bone_values.items() if v]
         st.write(active_bone if active_bone else "Нет отмеченных симптомов.")
 
-    
+        st.write("**Синдром Кушинга:**")
+        active_cushing = [cushing_labels.get(k, k) for k, v in cushing_values.items() if v]
+        st.write(active_cushing if active_cushing else "Нет отмеченных симптомов.")
+
+        st.write("**Болезнь Аддисона:**")
+        active_addison = [addison_labels.get(k, k) for k, v in addison_values.items() if v]
+        st.write(active_addison if active_addison else "Нет отмеченных симптомов.")
+
+        st.write("**Первичный гиперпаратиреоз:**")
+        active_hyperpara = [hyperpara_labels.get(k, k) for k, v in hyperpara_values.items() if v]
+        st.write(active_hyperpara if active_hyperpara else "Нет отмеченных симптомов.")
+
 if enable_mfdfa:
         uploaded_series = parse_uploaded_glucose_file(glucose_file)
         manual_series = parse_series(glucose_series_text)

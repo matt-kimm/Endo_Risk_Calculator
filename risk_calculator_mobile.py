@@ -883,7 +883,7 @@ def diabetes_probability_from_model(age, gender, symptom_values, family_history_
             return None, None, f"Не удалось использовать модель: {e}"
 
     # Безопасный эвристический fallback
-    score = 0.0
+    score = 5.0
     score = min(score, 97)
     score *= diabetes_age_modifier(age)
     score += 12 * yes(symptom_values.get("Polyuria"))

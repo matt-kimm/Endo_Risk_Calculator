@@ -2038,7 +2038,7 @@ if submitted:
 <div class="card">
   <div><strong>{card['name']}</strong> {badge(stage_text)}</div>
   <div style="margin-top:0.35rem;"><strong>Риск:</strong> {score_to_text(card['score'])}</div>
-  <div style="margin-top:0.25rem;"><strong>Стадия:</strong> {stage_text} &nbsp; <strong>Уверенность:</strong> {confidence_text} &nbsp; <strong>Bayes-постериор:</strong> {posterior_text}</div>
+  <div style="margin-top:0.25rem;"><strong>Стадия:</strong> {stage_text} &nbsp; <strong>Уверенность:</strong> {confidence_text} &nbsp; <strong>Апостериорная вероятность:</strong> {posterior_text}</div>
   <div class="muted" style="margin-top:0.35rem;"><strong>Основные драйверы:</strong> {", ".join(drivers)}</div>
   <div class="muted" style="margin-top:0.25rem;"><strong>Отмеченные признаки:</strong> {", ".join(signals) if signals else "Нет выраженных симптомов по этому блоку."}</div>
   <div style="margin-top:0.5rem;">{card["advice"]}</div>

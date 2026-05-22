@@ -50,15 +50,81 @@ st.markdown(
         line-height: 1.3 !important;
         padding-top: 0.5rem;
     }
-    .card {
-        border: 1px solid rgba(120,120,120,0.18);
-        border-radius: 16px;
-        padding: 0.9rem 1rem;
-        margin-bottom: 0.8rem;
-        background: rgba(250,250,250,0.65);
+
+    :root {
+        --risk-low: #1fa971;
+        --risk-mid: #f0a500;
+        --risk-high: #e53935;
+    }
+
+    .risk-card {
+        background: var(--secondary-background-color);
+        color: var(--text-color);
+        border: 1px solid rgba(128, 128, 128, 0.18);
+        border-radius: 18px;
+        padding: 1rem 1rem 0.9rem 1rem;
+        margin-bottom: 0.9rem;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+    }
+    .risk-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.65rem;
+    }
+    .risk-title {
+        font-size: 1.12rem;
+        font-weight: 800;
+        line-height: 1.2;
+        word-break: break-word;
+    }
+    .risk-badge {
+        flex: 0 0 auto;
+        padding: 0.28rem 0.65rem;
+        border-radius: 999px;
+        color: white;
+        font-size: 0.8rem;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+    .risk-percent {
+        font-size: 1.9rem;
+        font-weight: 900;
+        line-height: 1;
+        margin-bottom: 0.45rem;
+        letter-spacing: -0.02em;
+    }
+    .risk-bar {
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(127, 127, 127, 0.18);
+        margin-bottom: 0.65rem;
+    }
+    .risk-fill {
+        height: 100%;
+        border-radius: 999px;
+    }
+    .risk-summary {
+        font-size: 0.95rem;
+        line-height: 1.5;
+        opacity: 0.95;
+    }
+    .risk-meta {
+        margin-top: 0.65rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid rgba(127, 127, 127, 0.12);
+        font-size: 0.92rem;
+        line-height: 1.45;
+    }
+    .risk-meta strong {
+        opacity: 0.95;
     }
     .muted {
-        color: #666;
+        color: var(--text-color);
+        opacity: 0.8;
         font-size: 0.92rem;
     }
     .badge {
@@ -87,6 +153,12 @@ st.markdown(
         .stColumn {
             padding-left: 0 !important;
             padding-right: 0 !important;
+        }
+        .risk-title {
+            font-size: 1.02rem;
+        }
+        .risk-percent {
+            font-size: 1.7rem;
         }
     }
 </style>
@@ -199,6 +271,45 @@ def summarize_flags(flags):
     if not flags:
         return "Явно выраженных групп риска по анкете не выделено."
     return " / ".join(flags)
+
+
+def theme_risk_color(score: float) -> str:
+    if score < 30:
+        return "var(--risk-low)"
+    if score < 60:
+        return "var(--risk-mid)"
+    return "var(--risk-high)"
+
+
+def render_risk_card(title, score, stage_text, advice, confidence_text="—", posterior_text="—", drivers=None, signals=None):
+    drivers = [d for d in (drivers or []) if d]
+    signals = [s for s in (signals or []) if s]
+    color = theme_risk_color(float(score))
+    clipped_advice = advice if advice else ""
+    percent_width = max(0.0, min(100.0, float(score)))
+    st.markdown(
+        f"""
+<div class="risk-card">
+  <div class="risk-header">
+    <div class="risk-title">{title}</div>
+    <div class="risk-badge" style="background:{color};">{stage_text}</div>
+  </div>
+  <div class="risk-percent">{float(score):.1f}%</div>
+  <div class="risk-bar"><div class="risk-fill" style="width:{percent_width}%; background:{color};"></div></div>
+  <div class="risk-summary">{clipped_advice}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    with st.expander("Подробнее", expanded=False):
+        st.write(f"**Уверенность:** {confidence_text}")
+        st.write(f"**Апостериорная вероятность:** {posterior_text}")
+        if drivers:
+            st.write("**Основные драйверы:** " + ", ".join(drivers))
+        if signals:
+            st.write("**Отмеченные признаки:** " + ", ".join(signals))
+        else:
+            st.write("**Отмеченные признаки:** Нет выраженных симптомов по этому блоку.")
 
 # ======================== МОДЕЛЬ ДЛЯ ДИАБЕТА ========================
 @st.cache_resource
@@ -1257,7 +1368,17 @@ else:
     st.info("Для новых блоков используется безопасная клиническая логика; ML-модели можно подключить файлами .pkl без изменения интерфейса.")
 
 # ======================== ФОРМА ВВОДА (БЕЗ st.form) ========================
+
 st.header("📋 Введите данные")
+st.caption("Сверните ненужные блоки, чтобы экран был компактнее. Симптомы сгруппированы по разделам.")
+
+def render_symptom_checkboxes(features, values_dict, key_prefix, labels_map=None, columns=2, disabled=False):
+    cols = st.columns(columns)
+    for idx, feature in enumerate(features):
+        label = labels_map.get(feature, feature.replace("_", " ").title()) if labels_map else feature.replace("_", " ").title()
+        with cols[idx % columns]:
+            values_dict[feature] = st.checkbox(label, key=f"{key_prefix}_{feature}", disabled=disabled)
+    return values_dict
 
 col_age, col_gender = st.columns(2)
 with col_age:
@@ -1266,125 +1387,96 @@ with col_gender:
     gender_input = st.radio("Пол", options=["Мужской", "Женский"], help="Выберите пол")
 gender = 0 if gender_input == "Мужской" else 1
 
-st.subheader("🧬 Наследственность")
-family_history_diabetes = st.checkbox("Наследственность по диабету 2 типа (родители, сиблинги)")
-family_history_thyroid = st.checkbox("Наследственность по заболеваниям щитовидной железы")
-family_history_osteoporosis = st.checkbox("Наследственность по остеопорозу")
+with st.expander("🧬 Наследственность", expanded=False):
+    family_history_diabetes = st.checkbox("Наследственность по диабету 2 типа (родители, сиблинги)")
+    family_history_thyroid = st.checkbox("Наследственность по заболеваниям щитовидной железы")
+    family_history_osteoporosis = st.checkbox("Наследственность по остеопорозу")
 
-st.subheader("🧩 Базовые данные")
-col_h, col_w, col_waist = st.columns(3)
-with col_h:
-    height_cm = st.number_input("Рост, см", min_value=100.0, max_value=230.0, value=170.0, step=1.0)
-with col_w:
-    weight_kg = st.number_input("Вес, кг", min_value=30.0, max_value=250.0, value=75.0, step=0.5)
-with col_waist:
-    waist_cm = st.number_input("Талия, см", min_value=40.0, max_value=200.0, value=85.0, step=1.0)
+with st.expander("🧩 Базовые данные", expanded=True):
+    col_h, col_w, col_waist = st.columns(3)
+    with col_h:
+        height_cm = st.number_input("Рост, см", min_value=100.0, max_value=230.0, value=170.0, step=1.0)
+    with col_w:
+        weight_kg = st.number_input("Вес, кг", min_value=30.0, max_value=250.0, value=75.0, step=0.5)
+    with col_waist:
+        waist_cm = st.number_input("Талия, см", min_value=40.0, max_value=200.0, value=85.0, step=1.0)
 
-col_sleep, col_activity = st.columns(2)
-with col_sleep:
-    sleep_hours = st.slider("Сон, часов/сутки", min_value=3.0, max_value=12.0, value=7.0, step=0.5)
-with col_activity:
-    activity_level = st.selectbox("Физическая активность", ["Низкая", "Средняя", "Высокая"], index=1)
+    col_sleep, col_activity = st.columns(2)
+    with col_sleep:
+        sleep_hours = st.slider("Сон, часов/сутки", min_value=3.0, max_value=12.0, value=7.0, step=0.5)
+    with col_activity:
+        activity_level = st.selectbox("Физическая активность", ["Низкая", "Средняя", "Высокая"], index=1)
 
-bmi = weight_kg / ((height_cm / 100.0) ** 2) if height_cm > 0 else 0.0
-st.caption(f"Расчетный ИМТ: {bmi:.1f}")
+    bmi = weight_kg / ((height_cm / 100.0) ** 2) if height_cm > 0 else 0.0
+    st.caption(f"Расчетный ИМТ: {bmi:.1f}")
 
-st.subheader("🍬 Симптомы, связанные с диабетом")
-st.caption("Отметьте признаки, которые у вас наблюдаются.")
-diabetes_symptom_values = {}
-diabetes_features = expected_features[2:]
-col1, col2 = st.columns(2)
-for idx, feature in enumerate(diabetes_features):
-    ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-    with (col1 if idx % 2 == 0 else col2):
-        diabetes_symptom_values[feature] = st.checkbox(ru_name, key=f"dm_{feature}")
+with st.expander("🍬 Диабет и симптомы обмена", expanded=True):
+    st.caption("Отметьте признаки, которые у вас наблюдаются.")
+    diabetes_symptom_values = {}
+    diabetes_features = expected_features[2:]
+    render_symptom_checkboxes(diabetes_features, diabetes_symptom_values, "dm", feature_names_ru, columns=2)
 
-st.subheader("🦋 Щитовидная железа")
-thyroid_values = {}
-th_col1, th_col2 = st.columns(2)
-for idx, feature in enumerate(thyroid_symptoms):
-    ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-    with (th_col1 if idx % 2 == 0 else th_col2):
-        thyroid_values[feature] = st.checkbox(ru_name, key=f"th_{feature}")
+with st.expander("🦋 Щитовидная железа", expanded=False):
+    thyroid_values = {}
+    render_symptom_checkboxes(thyroid_symptoms, thyroid_values, "th", feature_names_ru, columns=2)
 
-st.subheader("♀️ Женский гормональный блок (PCOS)")
-pcos_values = {}
-if gender == 1:
-    st.caption("Этот блок активен только для женщин.")
-    pcos_col1, pcos_col2 = st.columns(2)
-    for idx, feature in enumerate(pcos_symptoms):
-        ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-        with (pcos_col1 if idx % 2 == 0 else pcos_col2):
-            pcos_values[feature] = st.checkbox(ru_name, key=f"pcos_{feature}")
-else:
-    st.caption("PCOS-блок для мужчин не оценивается.")
-    for feature in pcos_symptoms:
-        pcos_values[feature] = False
+with st.expander("♀️ Женский гормональный блок (PCOS)", expanded=False):
+    pcos_values = {}
+    if gender == 1:
+        st.caption("Этот блок активен только для женщин.")
+        render_symptom_checkboxes(pcos_symptoms, pcos_values, "pcos", feature_names_ru, columns=2)
+    else:
+        st.info("PCOS-блок для мужчин не оценивается.")
+        for feature in pcos_symptoms:
+            pcos_values[feature] = False
 
-st.subheader("🦴 Костный риск / остеопения")
-bone_values = {}
-bone_col1, bone_col2 = st.columns(2)
-for idx, feature in enumerate(bone_risk_features):
-    ru_name = feature_names_ru.get(feature, feature.replace("_", " ").title())
-    with (bone_col1 if idx % 2 == 0 else bone_col2):
-        bone_values[feature] = st.checkbox(ru_name, key=f"bone_{feature}")
+with st.expander("🦴 Костный риск / остеопения", expanded=False):
+    bone_values = {}
+    render_symptom_checkboxes(bone_risk_features, bone_values, "bone", feature_names_ru, columns=2)
 
-st.subheader("🩸 Дополнительные эндокринные блоки")
-st.caption("Здесь собраны редкие, но клинически значимые синдромы.")
+with st.expander("🩸 Дополнительные эндокринные блоки", expanded=False):
+    st.caption("Здесь собраны редкие, но клинически значимые синдромы.")
 
-st.markdown("#### Синдром Кушинга")
-cushing_values = {}
-cushing_col1, cushing_col2 = st.columns(2)
-for idx, feature in enumerate(cushing_symptoms):
-    ru_name = cushing_labels.get(feature, feature.replace("_", " ").title())
-    with (cushing_col1 if idx % 2 == 0 else cushing_col2):
-        cushing_values[feature] = st.checkbox(ru_name, key=f"cushing_{feature}")
+    with st.expander("Синдром Кушинга", expanded=False):
+        cushing_values = {}
+        render_symptom_checkboxes(cushing_symptoms, cushing_values, "cushing", cushing_labels, columns=2)
 
-st.markdown("#### Болезнь Аддисона")
-addison_values = {}
-addison_col1, addison_col2 = st.columns(2)
-for idx, feature in enumerate(addison_symptoms):
-    ru_name = addison_labels.get(feature, feature.replace("_", " ").title())
-    with (addison_col1 if idx % 2 == 0 else addison_col2):
-        addison_values[feature] = st.checkbox(ru_name, key=f"addison_{feature}")
+    with st.expander("Болезнь Аддисона", expanded=False):
+        addison_values = {}
+        render_symptom_checkboxes(addison_symptoms, addison_values, "addison", addison_labels, columns=2)
 
-st.markdown("#### Первичный гиперпаратиреоз")
-hyperpara_values = {}
-hyperpara_col1, hyperpara_col2 = st.columns(2)
-for idx, feature in enumerate(hyperparathyroidism_symptoms):
-    ru_name = hyperpara_labels.get(feature, feature.replace("_", " ").title())
-    with (hyperpara_col1 if idx % 2 == 0 else hyperpara_col2):
-        hyperpara_values[feature] = st.checkbox(ru_name, key=f"hyperpara_{feature}")
+    with st.expander("Первичный гиперпаратиреоз", expanded=False):
+        hyperpara_values = {}
+        render_symptom_checkboxes(hyperparathyroidism_symptoms, hyperpara_values, "hyperpara", hyperpara_labels, columns=2)
 
-st.subheader("🧪 Анализы (если уже есть)")
-col_fg, col_hba1c, col_tsh, col_ft4 = st.columns(4)
-with col_fg:
-    fasting_glucose = st.number_input("Глюкоза натощак, мг/дл", min_value=0.0, max_value=1000.0, value=0.0, step=1.0, help="0 = не указывать")
-with col_hba1c:
-    hba1c = st.number_input("HbA1c, %", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
-with col_tsh:
-    tsh_value = st.number_input("ТТГ, мМЕ/л", min_value=0.0, max_value=100.0, value=0.0, step=0.1, help="0 = не указывать")
-with col_ft4:
-    ft4_value = st.number_input("Св. T4, нг/дл", min_value=0.0, max_value=10.0, value=0.0, step=0.1, help="0 = не указывать")
+with st.expander("🧪 Анализы (если уже есть)", expanded=False):
+    col_fg, col_hba1c, col_tsh, col_ft4 = st.columns(4)
+    with col_fg:
+        fasting_glucose = st.number_input("Глюкоза натощак, мг/дл", min_value=0.0, max_value=1000.0, value=0.0, step=1.0, help="0 = не указывать")
+    with col_hba1c:
+        hba1c = st.number_input("HbA1c, %", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
+    with col_tsh:
+        tsh_value = st.number_input("ТТГ, мМЕ/л", min_value=0.0, max_value=100.0, value=0.0, step=0.1, help="0 = не указывать")
+    with col_ft4:
+        ft4_value = st.number_input("Св. T4, нг/дл", min_value=0.0, max_value=10.0, value=0.0, step=0.1, help="0 = не указывать")
 
-serum_calcium = st.number_input("Кальций общий, мг/дл", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
+    serum_calcium = st.number_input("Кальций общий, мг/дл", min_value=0.0, max_value=20.0, value=0.0, step=0.1, help="0 = не указывать")
 
-st.subheader("📈 Мультифрактальный анализ гликемии (экспериментально)")
-st.caption("Если есть ряд глюкозы по времени, можно вставить его сюда. Это исследовательский блок, а не стандартная клиническая методика.")
-glucose_series_text = st.text_area(
-    "Глюкозный ряд (числа через запятую, пробел или перенос строки)",
-    height=110,
-    placeholder="Например: 92, 95, 90, 101, 115, 108, 98, 94 ..."
-)
-glucose_file = st.file_uploader(
-    "Или загрузите файл с рядом глюкозы (.txt, .csv)",
-    type=["txt", "csv"],
-    help="Подходит файл с одним числом в строке или с числами, разделёнными запятыми / пробелами / точками с запятой.",
-)
-enable_mfdfa = st.checkbox("Выполнить MF-DFA-анализ, если данных достаточно", value=False)
+with st.expander("📈 Мультифрактальный анализ гликемии (экспериментально)", expanded=False):
+    st.caption("Если есть ряд глюкозы по времени, можно вставить его сюда. Это исследовательский блок, а не стандартная клиническая методика.")
+    glucose_series_text = st.text_area(
+        "Глюкозный ряд (числа через запятую, пробел или перенос строки)",
+        height=110,
+        placeholder="Например: 92, 95, 90, 101, 115, 108, 98, 94 ..."
+    )
+    glucose_file = st.file_uploader(
+        "Или загрузите файл с рядом глюкозы (.txt, .csv)",
+        type=["txt", "csv"],
+        help="Подходит файл с одним числом в строке или с числами, разделёнными запятыми / пробелами / точками с запятой.",
+    )
+    enable_mfdfa = st.checkbox("Выполнить MF-DFA-анализ, если данных достаточно", value=False)
 
 submitted = st.button("Собрать медицинскую карту", type="primary", use_container_width=True)
-
 # ======================== MF-DFA ========================
 
 def extract_numeric_series(text: str):
@@ -2027,24 +2119,21 @@ if submitted:
         if card["score"] is None:
             continue
         assessment = card.get("assessment", {})
-        drivers = [d for d in card["drivers"] if d is not None]
+        drivers = [d for d in card.get("drivers", []) if d is not None]
         signals = card.get("signals", [])
         confidence_text = "—" if assessment.get("confidence") is None else f"{assessment['confidence']:.0f}%"
         posterior_text = "—" if assessment.get("posterior") is None else f"{assessment['posterior']:.0f}%"
         stage_text = assessment.get("stage", "Не оценен")
 
-        st.markdown(
-            f"""
-<div class="card">
-  <div><strong>{card['name']}</strong> {badge(stage_text)}</div>
-  <div style="margin-top:0.35rem;"><strong>Риск:</strong> {score_to_text(card['score'])}</div>
-  <div style="margin-top:0.25rem;"><strong>Стадия:</strong> {stage_text} &nbsp; <strong>Уверенность:</strong> {confidence_text} &nbsp; <strong>Апостериорная вероятность:</strong> {posterior_text}</div>
-  <div class="muted" style="margin-top:0.35rem;"><strong>Основные драйверы:</strong> {", ".join(drivers)}</div>
-  <div class="muted" style="margin-top:0.25rem;"><strong>Отмеченные признаки:</strong> {", ".join(signals) if signals else "Нет выраженных симптомов по этому блоку."}</div>
-  <div style="margin-top:0.5rem;">{card["advice"]}</div>
-</div>
-""",
-            unsafe_allow_html=True,
+        render_risk_card(
+            title=card["name"],
+            score=card["score"],
+            stage_text=stage_text,
+            advice=card["advice"],
+            confidence_text=confidence_text,
+            posterior_text=posterior_text,
+            drivers=drivers,
+            signals=signals,
         )
 
     st.subheader("🔗 Как все связано между собой")

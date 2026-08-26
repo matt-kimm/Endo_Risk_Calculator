@@ -26,8 +26,7 @@ warnings.filterwarnings('ignore')
 
 st.set_page_config(
     page_title="Endo Risk Calculator",
-    page_icon="🩺",
-    layout="wide"
+    page_icon="🩺"
 )
 
 # Инициализация состояний для expander'ов

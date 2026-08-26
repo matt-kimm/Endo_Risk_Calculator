@@ -6,5 +6,4 @@ scikit-learn
 matplotlib
 reportlab
 plotly
-sklearn
 shap

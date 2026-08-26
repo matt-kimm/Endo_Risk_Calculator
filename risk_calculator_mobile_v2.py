@@ -23,6 +23,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ======================== НАСТРОЙКА СТРАНИЦЫ ========================
+
+st.set_page_config(
+    page_title="Endo Risk Calculator",
+    page_icon="🩺",
+    layout="wide"
+)
+
 # Инициализация состояний для expander'ов
 if 'expander_states' not in st.session_state:
     st.session_state['expander_states'] = {
@@ -3515,7 +3522,10 @@ with tab2:
                     plt.close(fig_comp)
 
     # ======================== PDF ОТЧЕТ ========================
- 
+    st.markdown("---")
+    st.subheader("📄 Создание PDF отчета")
+    st.caption("Создайте подробный PDF отчет со всеми данными пациента.")
+  
     if st.button("📄 Создать PDF отчет по данным", key="create_data_pdf_button"):
         try:
             # Импортируем необходимые библиотеки для создания PDF
